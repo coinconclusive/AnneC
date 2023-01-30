@@ -18,6 +18,6 @@ C superset. Custom backend.
   * `annec/` - annec compiler.
   * `anchor.c` - annec-anchor function definitions.
 
-## building
+## Building
 
 No build system right now, just `clang src/**/*.c -o test -std=c17 -Iinclude`.
