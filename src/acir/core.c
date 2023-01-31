@@ -81,9 +81,9 @@ void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self) {
   if(self->opcode == ACIR_OPCODE_SET) {
     AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | ", self->index);
     AcirOperand_Print(out, &self->out);
-    AnchWriteString(out, " =.");
+    AnchWriteString(out, ".");
     AcirValueType_Print(out, self->type);
-    AnchWriteString(out, " ");
+    AnchWriteString(out, " = ");
     AcirOperand_Print(out, &self->val);
   } else {
     AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | " ANSI_BLUE "%s" ANSI_RESET ".",
@@ -110,9 +110,10 @@ void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self) {
     }
   }
 
-  AnchWriteString(out, " -> ");
-  if(!self->next) AnchWriteString(out, ANSI_GRAY  "ϵ" ANSI_RESET);
-  else AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET, self->next->index);
+  if(!self->next)
+    AnchWriteString(out, ANSI_GRAY  " -> end" ANSI_RESET);
+  else if(self->next->index != self->index + 1)
+    AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next->index);
 }
 
 void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
@@ -192,6 +193,7 @@ typedef struct {
   size_t bindingCount;
   ValidationContext_Binding_ *bindings;
   AnchAllocator *allocator;
+  int errorCount;
 } ValidationContext_;
 
 static ValidationContext_Binding_ *ValidationContext_GetBinding(const ValidationContext_ *self, size_t index) {
@@ -234,7 +236,9 @@ static const AcirValueType *ValidationContext_TypeOf(const ValidationContext_ *s
   }
 }
 
-static void ValidationContext_Error_(const ValidationContext_ *self, const AcirInstr *instr, const char *format, ...) {
+static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *instr, const char *format, ...) {
+  self->errorCount += 1;
+  
   AnchFileWriteStream wsStderrValue;
   AnchFileWriteStream_InitWith(&wsStderrValue, stderr);
   AnchCharWriteStream *ws = &wsStderrValue.stream;
@@ -250,12 +254,12 @@ static void ValidationContext_Error_(const ValidationContext_ *self, const AcirI
     ++format;
   }
 
-  AnchWriteString(ws, ANSI_RED "\nValidation error for instruction:\n  " ANSI_RESET);
+  AnchWriteString(ws, ANSI_RED "\nError: " ANSI_RESET);
   AnchWriteFormatV(ws, format, va);
   AnchWriteString(ws, "\n");
   AcirInstr_Print(ws, instr);
   AnchWriteString(ws, "\n");
-
+  if(notes) AnchWriteString(ws, "\n");
   while(notes && *notes != ';') {
     AnchWriteString(ws, ANSI_GRAY "Note: " ANSI_RESET);
     switch(*notes) {
@@ -278,7 +282,8 @@ static void ValidationContext_Error_(const ValidationContext_ *self, const AcirI
         AnchWriteString(ws, "`");
       } break;
       case 's':
-        AnchWriteFormat(ws, "instruction signature: `%s`", AcirOpcode_Signature(instr->opcode));
+        AnchWriteFormat(ws, "instruction signature: `" ANSI_GRAY "%s" ANSI_RESET "`",
+          AcirOpcode_Signature(instr->opcode));
         break;
       default:
         AnchWriteFormat(ws, ANSI_RED "<bad note type ('%c' %d)>" ANSI_RESET, *notes, *notes);
@@ -287,6 +292,7 @@ static void ValidationContext_Error_(const ValidationContext_ *self, const AcirI
     ++notes;
   }
 
+  if(notes) AnchWriteString(ws, "\n");
   va_end(va);
 }
 
@@ -359,11 +365,14 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
     
     if(writable || lvalue) {
       if(op->type != ACIR_OPERAND_TYPE_BINDING) {
-        ValidationContext_Error_(self, instr, "!Os;%s argument (%d) must be either writable or an lvalue.",
+        ValidationContext_Error_(self, instr, "!Os;%s argument (#%d) must be either writable or an lvalue.",
           opname, index + 1, op);
       } else {
         if(binding != NULL && binding->exists)
-            ValidationContext_Error_(self, instr, "binding $%d might be set multiple times.", op->idx);
+            ValidationContext_Error_(self, instr,
+              ANSI_RESET "binding $"
+              ANSI_YELLOW "%d"
+              ANSI_RESET " might be set multiple times.", op->idx);
         
         binding = ValidationContext_GetOrCreateBinding(self, op->idx);
         binding->exists = true;
@@ -376,15 +385,15 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
 
     const AcirValueType *opType = ValidationContext_TypeOf(self, op);
     if(opType == NULL) {
-      ValidationContext_Error_(self, instr, "%s argument (%d) doesn't have a type.",
+      ValidationContext_Error_(self, instr, "%s argument (#%d) doesn't have a type.",
         opname, index + 1);
     } else if(!AcirBasicValueType_Equals(typeRef, opType)) {
-      ValidationContext_Error_(self, instr, "!Es;%s argument (%d) did not match type.",
+      ValidationContext_Error_(self, instr, "!Es;%s argument (#%d) did not match type.",
         opname, index + 1, typeRef, opType);
     }
 
     if(instr->opcode == ACIR_OPCODE_RET && instr->next != NULL) {
-      ValidationContext_Error_(self, instr, "the `ret` instruction has to be last.");
+      ValidationContext_Error_(self, instr, "the `" ANSI_BLUE "ret" ANSI_RESET "` instruction has to be last.");
     }
 
     ++index;
@@ -392,7 +401,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
   }
 }
 
-void AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
+int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
   assert(self != NULL);
   
   ValidationContext_ context = {0};
@@ -404,4 +413,6 @@ void AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
 
   if(context.bindingCount > 0)
     AnchAllocator_Free(context.allocator, context.bindings);
+  
+  return context.errorCount;
 }

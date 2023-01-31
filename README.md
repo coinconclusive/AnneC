@@ -11,7 +11,7 @@ C superset. Custom backend.
   * `annec_anchor.h` - core library. (streams, allocators, ...)
 * `src/` - source flies.
   * `acir/` - annec ir.
-    * `cli.h` - private header with utility defines.
+    * `cli.h` - private header with utility declarations and defines.
     * `core.c` - annec ir most function definitions.
     * `optimizer.c` - annec ir optimizer related functrions.
     * `test.c` - test file with an entry point.

@@ -2,13 +2,18 @@
 #include <annec_anchor.h>
 #include "cli.h"
 
-AnchCharWriteStream *wsStdout;
 AnchAllocator *allocator;
+AnchCharWriteStream *wsStdout;
+AnchCharWriteStream *wsStderr;
 
 int main(int argc, char *argv[]) {
   AnchFileWriteStream valueWsStdout = {0};
   AnchFileWriteStream_InitWith(&valueWsStdout, stdout);
   wsStdout = &valueWsStdout.stream;
+  
+  AnchFileWriteStream valueWsStderr = {0};
+  AnchFileWriteStream_InitWith(&valueWsStderr, stderr);
+  wsStderr = &valueWsStderr.stream;
 
   AnchDefaultAllocator defaultAllocator;
   AnchDefaultAllocator_Init(&defaultAllocator);
@@ -42,12 +47,19 @@ int main(int argc, char *argv[]) {
       .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 3 }, },
   };
 
-  puts(ANSI_GRAY "\n============[ " ANSI_MAGENTA "IR" ANSI_GRAY " ]============" ANSI_RESET);
+#define SEPARATOR "======================="
+  puts(ANSI_GRAY "\n" SEPARATOR "[ " ANSI_MAGENTA "Generated IR" ANSI_GRAY " ]" SEPARATOR ANSI_RESET);
   for(int i = 0; i < 5; ++i) {
     AcirInstr_Print(wsStdout, &instrs[i]);
     AnchWriteString(wsStdout, "\n");
   }
 
+  puts(ANSI_GRAY "\n" SEPARATOR "=[ " ANSI_MAGENTA "Validation" ANSI_GRAY " ]=" SEPARATOR ANSI_RESET);
   AcirFunction func = { .type = NULL, .code = instrs, .name = "main" };
-  AcirFunction_Validate(&func, allocator);
+  int errorCount = AcirFunction_Validate(&func, allocator);
+
+  if(errorCount > 0)
+    AnchWriteFormat(wsStderr, ANSI_RED "\n%d Errors\n" ANSI_RESET, errorCount);
+  else
+    AnchWriteFormat(wsStdout, ANSI_GREEN "\nNo Errors\n" ANSI_RESET);
 }

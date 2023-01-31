@@ -162,7 +162,7 @@ typedef struct {
   const char *name;
 } AcirFunction;
 
-void AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator);
+int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator);
 
 typedef struct {
   AcirFunction *target;
