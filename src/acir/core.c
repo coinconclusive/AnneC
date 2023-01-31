@@ -210,9 +210,8 @@ static ValidationContext_Binding_ *ValidationContext_GetOrCreateBinding(Validati
   self->bindingCount = index + 1;
 
   if(self->bindings == NULL) {
-    self->bindings = AnchAllocator_Alloc(self->allocator,
+    self->bindings = AnchAllocator_AllocZero(self->allocator,
       sizeof(ValidationContext_Binding_) * self->bindingCount);
-    memset(self->bindings, 0, sizeof(ValidationContext_Binding_) * self->bindingCount);
   } else {
     self->bindings = AnchAllocator_Realloc(self->allocator,
       self->bindings, sizeof(ValidationContext_Binding_) * self->bindingCount);
@@ -238,10 +237,6 @@ static const AcirValueType *ValidationContext_TypeOf(const ValidationContext_ *s
 
 static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *instr, const char *format, ...) {
   self->errorCount += 1;
-  
-  AnchFileWriteStream wsStderrValue;
-  AnchFileWriteStream_InitWith(&wsStderrValue, stderr);
-  AnchCharWriteStream *ws = &wsStderrValue.stream;
 
   va_list va;
   va_start(va, format);
@@ -254,45 +249,45 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
     ++format;
   }
 
-  AnchWriteString(ws, ANSI_RED "\nError: " ANSI_RESET);
-  AnchWriteFormatV(ws, format, va);
-  AnchWriteString(ws, "\n");
-  AcirInstr_Print(ws, instr);
-  AnchWriteString(ws, "\n");
-  if(notes) AnchWriteString(ws, "\n");
+  AnchWriteString(wsStderr, ANSI_RED "\nError: " ANSI_RESET);
+  AnchWriteFormatV(wsStderr, format, va);
+  AnchWriteString(wsStderr, "\n");
+  AcirInstr_Print(wsStderr, instr);
+  AnchWriteString(wsStderr, "\n");
+  if(notes) AnchWriteString(wsStderr, "\n");
   while(notes && *notes != ';') {
-    AnchWriteString(ws, ANSI_GRAY "Note: " ANSI_RESET);
+    AnchWriteString(wsStderr, ANSI_GRAY "Note: " ANSI_RESET);
     switch(*notes) {
       case 'E':
-        AnchWriteString(ws, "expected `");
-        AcirValueType_Print(ws, va_arg(va, const AcirValueType *));
-        AnchWriteString(ws, "`, but got `");
-        AcirValueType_Print(ws, va_arg(va, const AcirValueType *));
-        AnchWriteString(ws, "` instead.");
+        AnchWriteString(wsStderr, "expected `");
+        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AnchWriteString(wsStderr, "`, but got `");
+        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AnchWriteString(wsStderr, "` instead.");
         break;
       case 'G':
-        AnchWriteString(ws, "got `");
-        AcirValueType_Print(ws, va_arg(va, const AcirValueType *));
-        AnchWriteString(ws, "`");
+        AnchWriteString(wsStderr, "got `");
+        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AnchWriteString(wsStderr, "`");
         break;
       case 'O': {
         const AcirOperand *op = va_arg(va, const AcirOperand *);
-        AnchWriteFormat(ws, "got %s `", AcirOperandType_Name(op->type));
-        AcirValueType_Print(ws, ValidationContext_TypeOf(self, op));
-        AnchWriteString(ws, "`");
+        AnchWriteFormat(wsStderr, "got %s `", AcirOperandType_Name(op->type));
+        AcirValueType_Print(wsStderr, ValidationContext_TypeOf(self, op));
+        AnchWriteString(wsStderr, "`");
       } break;
       case 's':
-        AnchWriteFormat(ws, "instruction signature: `" ANSI_GRAY "%s" ANSI_RESET "`",
+        AnchWriteFormat(wsStderr, "instruction signature: `" ANSI_GRAY "%s" ANSI_RESET "`",
           AcirOpcode_Signature(instr->opcode));
         break;
       default:
-        AnchWriteFormat(ws, ANSI_RED "<bad note type ('%c' %d)>" ANSI_RESET, *notes, *notes);
+        AnchWriteFormat(wsStderr, ANSI_RED "<bad note type ('%c' %d)>" ANSI_RESET, *notes, *notes);
     }
-    AnchWriteString(ws, "\n");
+    AnchWriteString(wsStderr, "\n");
     ++notes;
   }
 
-  if(notes) AnchWriteString(ws, "\n");
+  if(notes) AnchWriteString(wsStderr, "\n");
   va_end(va);
 }
 
@@ -415,4 +410,40 @@ int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
     AnchAllocator_Free(context.allocator, context.bindings);
   
   return context.errorCount;
+}
+
+void AcirBuilder_Init(AcirBuilder *self, AcirFunction *target, AnchAllocator *allocator) {
+  assert(self != NULL);
+  self->target = target;
+  self->allocator = allocator;
+  self->instrCount = 0;
+  self->instrs = NULL;
+}
+
+void AcirBuilder_Free(AcirBuilder *self) {
+  assert(self != NULL);
+  if(self->instrCount > 0)
+    AnchAllocator_Free(self->allocator, self->instrs);
+  self->target = NULL;
+  self->allocator = NULL;
+  self->instrCount = 0;
+  self->instrs = NULL;
+}
+
+AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index) {
+  assert(self != NULL);
+
+  if(index < self->instrCount) return &self->instrs[index];
+
+  size_t oldInstrCount = self->instrCount;
+  self->instrCount = index + 1;
+
+  if(self->instrCount == 0) {
+    self->instrs = AnchAllocator_AllocZero(self->allocator, sizeof(AcirInstr));
+  } else {
+    self->instrs = AnchAllocator_Realloc(self->allocator, self->instrs, sizeof(AcirInstr) * self->instrCount);
+    memset(self->instrs + oldInstrCount, 0, sizeof(AcirInstr) * (self->instrCount - oldInstrCount));
+  }
+  
+  return &self->instrs[index];
 }

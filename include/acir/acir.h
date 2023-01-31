@@ -168,9 +168,12 @@ typedef struct {
   AcirFunction *target;
   size_t instrCount;
   AcirInstr *instrs;
+  AnchAllocator *allocator;
 } AcirBuilder;
 
-AcirInstr *AcirBuilder_Add(AcirBuilder *self, const AcirInstr *instr);
+void AcirBuilder_Init(AcirBuilder *self, AcirFunction *target, AnchAllocator *allocator);
+void AcirBuilder_Free(AcirBuilder *self);
+AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index);
 
 typedef size_t AcirOptimizerBindingFlags;
 enum AcirOptimizerBindingFlags {
@@ -180,26 +183,36 @@ enum AcirOptimizerBindingFlags {
 };
 
 typedef struct {
+  bool exists;
   AcirOptimizerBindingFlags flags;
   AcirImmediateValue constant;
-} AcirOptimizerBinding;
+} AcirOptimizer_Binding;
 
 typedef struct {
+  bool exists;
   bool used;
   const AcirInstr *prev;
-} AcirOptimizerInstr;
+} AcirOptimizer_Instr;
 
 typedef struct {
   const AcirFunction *source;
   AcirBuilder *builder;
   size_t instrCount;
-  AcirOptimizerInstr *instrs;
+  AcirOptimizer_Instr *instrs;
   size_t bindingCount;
-  AcirOptimizerBinding *bindings;
+  AcirOptimizer_Binding *bindings;
   AnchAllocator *allocator;
   bool didAnalyze;
 } AcirOptimizer;
 
+typedef struct {
+  const AcirFunction *source;
+  AcirBuilder *builder;
+  AnchAllocator *allocator;
+} AcirOptimizer_InitInfo;
+
+void AcirOptimizer_Init(AcirOptimizer *self, const AcirOptimizer_InitInfo *info);
+void AcirOptimizer_Free(AcirOptimizer *self);
 void AcirOptimizer_Analyze(AcirOptimizer *self);
 void AcirOptimizer_ConstantFold(AcirOptimizer *self);
 void AcirOptimizer_DeadCode(AcirOptimizer *self);
