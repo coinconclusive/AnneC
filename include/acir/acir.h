@@ -4,6 +4,7 @@
 #include <annec_anchor.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <limits.h>
 
 // O(NAME, MNEMONIC, OPERAND_COUNT, SIGNATURE, DESCRIPTION)
 #define ACIR_OPCODES_ENUM(O, S) \
@@ -139,12 +140,14 @@ typedef struct {
 
 const char *AcirOperandType_Name(AcirOperandType type);
 
+#define ACIR_INSTR_INDEX_LAST (~(size_t)0)
+
 typedef struct AcirInstr AcirInstr;
 struct AcirInstr {
   size_t index;
   AcirOpcode opcode;
   const AcirValueType *type;
-  AcirInstr *next;
+  size_t next;
   AcirOperand out;
   union {
     struct { AcirOperand lhs, rhs; };
@@ -152,6 +155,7 @@ struct AcirInstr {
   };
 };
 
+// TODO: swap arguments around
 void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self);
 void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self);
 void AcirValueType_Print(AnchCharWriteStream *out, const AcirValueType *self);
@@ -160,15 +164,16 @@ typedef struct {
   const AcirValueType *type;
   const AcirInstr *code;
   const char *name;
+  size_t instrCount;
+  const AcirInstr *instrs;
 } AcirFunction;
 
 int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator);
 
 typedef struct {
   AcirFunction *target;
-  size_t instrCount;
-  AcirInstr *instrs;
   AnchAllocator *allocator;
+  AcirInstr *instrs;
 } AcirBuilder;
 
 void AcirBuilder_Init(AcirBuilder *self, AcirFunction *target, AnchAllocator *allocator);

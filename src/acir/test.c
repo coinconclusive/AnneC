@@ -28,17 +28,17 @@ int main(int argc, char *argv[]) {
   const AcirValueType *Tuint64 = &valueTuint64;
   
   AcirInstr instrs[] = {
-    (AcirInstr){ 0, ACIR_OPCODE_SET, Tuint64, &instrs[1],
+    (AcirInstr){ 0, ACIR_OPCODE_SET, Tuint64, 1,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 0 },
       .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 64 }, },
-    (AcirInstr){ 1, ACIR_OPCODE_SET, Tuint64, &instrs[2],
+    (AcirInstr){ 1, ACIR_OPCODE_SET, Tuint64, 2,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 1 },
       .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 12 }, },
-    (AcirInstr){ 2, ACIR_OPCODE_ADD, Tuint64, &instrs[3],
+    (AcirInstr){ 2, ACIR_OPCODE_ADD, Tuint64, 3,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 },
       .lhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 1 },
       .rhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 0 }, },
-    (AcirInstr){ 3, ACIR_OPCODE_RET, Tuint64, NULL,
+    (AcirInstr){ 3, ACIR_OPCODE_RET, Tuint64, ACIR_INSTR_INDEX_LAST,
       .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 }, },
   };
 
@@ -50,7 +50,13 @@ int main(int argc, char *argv[]) {
   }
 
   puts(ANSI_GRAY "\n" SEPARATOR "=[ " ANSI_MAGENTA "Validation" ANSI_GRAY " ]=" SEPARATOR ANSI_RESET);
-  AcirFunction func = { .type = NULL, .code = instrs, .name = "main" };
+  AcirFunction func = {
+    .type = NULL,
+    .code = instrs,
+    .name = "main",
+    .instrs = instrs,
+    .instrCount = 4
+  };
   int errorCount = AcirFunction_Validate(&func, allocator);
 
   if(errorCount > 0) {
@@ -76,7 +82,7 @@ int main(int argc, char *argv[]) {
   // AcirOptimizer_ConstantFold(&optimizer);
 
   puts(ANSI_GRAY "\n" SEPARATOR "[ " ANSI_MAGENTA "Optimized IR" ANSI_GRAY " ]" SEPARATOR ANSI_RESET);
-  for(int i = 0; i < builder.instrCount; ++i) {
+  for(int i = 0; i < builder.target->instrCount; ++i) {
     AcirInstr_Print(wsStdout, &builder.instrs[i]);
     AnchWriteString(wsStdout, "\n");
   }

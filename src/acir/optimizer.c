@@ -121,9 +121,9 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
   // );
   
   while(instr != NULL) {
-    if(instr->next != NULL) {
-      AllocAtLeast_Instrs_(self, instr->next->index + 1);
-      self->instrs[instr->next->index].prev = instr;
+    if(instr->next != ACIR_INSTR_INDEX_LAST) {
+      AllocAtLeast_Instrs_(self, instr->next + 1);
+      self->instrs[instr->next].prev = instr;
     }
 
     // AnchWriteString(wsStdout, ANSI_BLUE "Reading instruction:\n" ANSI_RESET);
@@ -140,18 +140,11 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
     //   self->bindingCount, self->bindings
     // );
 
-    AcirInstr *next_oinstr = NULL;
-    if(instr->next != NULL) {
-      next_oinstr = AcirBuilder_Add(self->builder, instr->next->index);
-      AnchWriteFormat(wsStdout, "next_oinstr %p @ %zu\n", next_oinstr, instr->next->index);
-    }
-
     AcirInstr *oinstr = AcirBuilder_Add(self->builder, instr->index);
-    AnchWriteFormat(wsStdout, "this_oinstr %p @ %zu\n", oinstr, instr->index);
     oinstr->opcode = instr->opcode;
     oinstr->index = instr->index;
     oinstr->type = instr->type;
-    oinstr->next = next_oinstr;
+    oinstr->next = instr->next;
 
     /************ Constant propagation ************/
     int operandCount = AcirOpcode_OperandCount(instr->opcode);
@@ -198,7 +191,8 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
       binding->exists = true;
     }
 
-    instr = instr->next;
+    if(instr->next == ACIR_INSTR_INDEX_LAST) break;
+    instr = &self->source->instrs[instr->next];
   }
 
   self->didAnalyze = true;

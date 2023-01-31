@@ -110,10 +110,10 @@ void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self) {
     }
   }
 
-  if(!self->next)
+  if(self->next == ACIR_INSTR_INDEX_LAST)
     AnchWriteString(out, ANSI_GRAY  " -> end" ANSI_RESET);
-  else if(self->next->index != self->index + 1)
-    AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next->index);
+  else if(self->next != self->index + 1)
+    AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next);
 }
 
 void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
@@ -270,6 +270,9 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
         AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
         AnchWriteString(wsStderr, "`");
         break;
+      case 'I':
+        AnchWriteFormat(wsStderr, "Instruction count is %zu", va_arg(va, size_t));
+        break;
       case 'O': {
         const AcirOperand *op = va_arg(va, const AcirOperand *);
         AnchWriteFormat(wsStderr, "got %s `", AcirOperandType_Name(op->type));
@@ -387,7 +390,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
         opname, index + 1, typeRef, opType);
     }
 
-    if(instr->opcode == ACIR_OPCODE_RET && instr->next != NULL) {
+    if(instr->opcode == ACIR_OPCODE_RET && instr->next != ACIR_INSTR_INDEX_LAST) {
       ValidationContext_Error_(self, instr, "the `" ANSI_BLUE "ret" ANSI_RESET "` instruction has to be last.");
     }
 
@@ -402,8 +405,13 @@ int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
   ValidationContext_ context = {0};
   context.allocator = allocator;
 
-  for(const AcirInstr *instr = self->code; instr != NULL; instr = instr->next) {
+  for(const AcirInstr *instr = self->code; instr != NULL;) {
     ValidationContext_CheckInstr_(&context, instr);
+    if(instr->next == ACIR_INSTR_INDEX_LAST) break;
+    if(instr->next >= self->instrCount)
+      ValidationContext_Error_(&context, instr,
+        "!I;Non-existent next instruction %zu.", instr->next, self->instrCount);
+    instr = &self->instrs[instr->next];
   }
 
   if(context.bindingCount > 0)
@@ -414,35 +422,43 @@ int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
 
 void AcirBuilder_Init(AcirBuilder *self, AcirFunction *target, AnchAllocator *allocator) {
   assert(self != NULL);
+  assert(target != NULL);
   self->target = target;
   self->allocator = allocator;
-  self->instrCount = 0;
+  self->target->instrCount = 0;
+  self->target->instrs = NULL;
   self->instrs = NULL;
 }
 
 void AcirBuilder_Free(AcirBuilder *self) {
   assert(self != NULL);
-  if(self->instrCount > 0)
+  if(self->target->instrCount > 0)
     AnchAllocator_Free(self->allocator, self->instrs);
-  self->target = NULL;
+  self->target->instrCount = 0;
+  self->target->instrs = NULL;
   self->allocator = NULL;
-  self->instrCount = 0;
+  self->target = NULL;
   self->instrs = NULL;
 }
 
 AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index) {
   assert(self != NULL);
 
-  if(index < self->instrCount) return &self->instrs[index];
+  if(index < self->target->instrCount) return &self->instrs[index];
 
-  size_t oldInstrCount = self->instrCount;
-  self->instrCount = index + 1;
+  size_t oldInstrCount = self->target->instrCount;
+  self->target->instrCount = index + 1;
 
-  if(self->instrCount == 0) {
-    self->instrs = AnchAllocator_AllocZero(self->allocator, sizeof(AcirInstr));
+  if(self->target->instrCount == 0) {
+    self->target->instrs = self->instrs =
+      AnchAllocator_AllocZero(self->allocator, sizeof(AcirInstr));
   } else {
-    self->instrs = AnchAllocator_Realloc(self->allocator, self->instrs, sizeof(AcirInstr) * self->instrCount);
-    memset(self->instrs + oldInstrCount, 0, sizeof(AcirInstr) * (self->instrCount - oldInstrCount));
+    self->target->instrs = self->instrs =
+      AnchAllocator_Realloc(self->allocator, self->instrs,
+        sizeof(AcirInstr) * self->target->instrCount);
+    
+    memset(self->instrs + oldInstrCount, 0,
+      sizeof(AcirInstr) * (self->target->instrCount - oldInstrCount));
   }
   
   return &self->instrs[index];
