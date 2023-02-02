@@ -161,13 +161,14 @@ void AcirValueType_Print(AnchCharWriteStream *out, const AcirValueType *self);
 
 typedef struct {
   const AcirValueType *type;
-  const AcirInstr *code;
+  size_t code;
   const char *name;
   size_t instrCount;
   const AcirInstr *instrs;
 } AcirFunction;
 
 int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator);
+void AcirFunction_Print(const AcirFunction *self, AnchCharWriteStream *out);
 
 typedef struct {
   AcirFunction *target;
@@ -178,6 +179,7 @@ typedef struct {
 void AcirBuilder_Init(AcirBuilder *self, AcirFunction *target, AnchAllocator *allocator);
 void AcirBuilder_Free(AcirBuilder *self);
 AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index);
+void AcirBuilder_BuildNormalized(const AcirBuilder *self, AcirBuilder *target);
 
 // TODO: move these to a local header file? maybe just impl file?
 

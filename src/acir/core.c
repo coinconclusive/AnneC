@@ -170,6 +170,14 @@ void AcirValueType_Print(AnchCharWriteStream *out, const AcirValueType *self) {
   }
 }
 
+void AcirFunction_Print(const AcirFunction *self, AnchCharWriteStream *out) {
+  for(const AcirInstr *instr = &self->instrs[self->code]; ; instr = &self->instrs[instr->next]) {
+    AcirInstr_Print(wsStdout, instr);
+    AnchWriteString(wsStdout, "\n");
+    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
+  }
+}
+
 bool AcirBasicValueType_Equals(const AcirValueType *self, const AcirValueType *other) {
   assert(self != NULL);
   assert(other != NULL);
@@ -441,7 +449,7 @@ int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
   ValidationContext_ context = {0};
   context.allocator = allocator;
 
-  for(const AcirInstr *instr = self->code; instr != NULL;) {
+  for(const AcirInstr *instr = &self->instrs[self->code]; instr != NULL;) {
     ValidationContext_CheckInstr_(&context, instr);
     if(instr->next == ACIR_INSTR_NULL_INDEX) break;
     if(instr->next >= self->instrCount)
@@ -472,7 +480,7 @@ void AcirBuilder_Free(AcirBuilder *self) {
     AnchAllocator_Free(self->allocator, self->instrs);
   self->target->instrCount = 0;
   self->target->instrs = NULL;
-  self->target->code = NULL;
+  self->target->code = ACIR_INSTR_NULL_INDEX;
   self->allocator = NULL;
   self->target = NULL;
   self->instrs = NULL;
@@ -490,22 +498,26 @@ AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index) {
     self->target->instrs = self->instrs =
       AnchAllocator_AllocZero(self->allocator, sizeof(AcirInstr));
     
-    self->target->code = &self->instrs[index];
+    self->target->code = index;
   } else {
-    // TODO: make self->target->code an index...
-    ptrdiff_t firstOffset = self->target->code - self->instrs;
-    size_t firstIndex = firstOffset / sizeof(AcirInstr);
-
     self->target->instrs = self->instrs =
       AnchAllocator_Realloc(self->allocator, self->instrs,
         sizeof(AcirInstr) * self->target->instrCount);
     
     memset(self->instrs + oldInstrCount, 0,
       sizeof(AcirInstr) * (self->target->instrCount - oldInstrCount));
-    
-    // TODO: make this an index instead.
-    self->target->code = &self->instrs[firstIndex];
   }
   
   return &self->instrs[index];
+}
+
+void AcirBuilder_BuildNormalized(const AcirBuilder *self, AcirBuilder *target) {
+  size_t index = 0;
+  for(AcirInstr *instr = &self->instrs[self->target->code]; ; instr = &self->instrs[instr->next]) {
+    AcirInstr *tinstr = AcirBuilder_Add(target, index);
+    *tinstr = *instr;
+    tinstr->index = index;
+    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
+    tinstr->next = ++index;
+  }
 }

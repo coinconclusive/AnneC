@@ -49,22 +49,19 @@ int main(int argc, char *argv[]) {
       .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 }, },
   };
 
-#define SEPARATOR "======================="
-  puts(ANSI_GRAY "\n" SEPARATOR "[ " ANSI_MAGENTA "Generated IR" ANSI_GRAY " ]" SEPARATOR ANSI_RESET);
-  for(int i = 0; i < sizeof(instrs) / sizeof(AcirInstr); ++i) {
-    AcirInstr_Print(wsStdout, &instrs[i]);
-    AnchWriteString(wsStdout, "\n");
-  }
-
-  puts(ANSI_GRAY "\n" SEPARATOR "=[ " ANSI_MAGENTA "Validation" ANSI_GRAY " ]=" SEPARATOR ANSI_RESET);
-  AcirFunction func = {
+  AcirFunction inputFunc = {
     .type = NULL,
-    .code = instrs,
+    .code = 0,
     .name = "main",
     .instrs = instrs,
     .instrCount = sizeof(instrs) / sizeof(AcirInstr)
   };
-  int errorCount = AcirFunction_Validate(&func, allocator);
+
+  WRITE_SEPARATOR("Generated IR");
+  AcirFunction_Print(&inputFunc, wsStdout);
+
+  WRITE_SEPARATOR1("Validation", "=");
+  int errorCount = AcirFunction_Validate(&inputFunc, allocator);
 
   if(errorCount > 0) {
     AnchWriteFormat(wsStderr, ANSI_RED "\n%d Errors, Aborting.\n" ANSI_RESET, errorCount);
@@ -73,29 +70,32 @@ int main(int argc, char *argv[]) {
     AnchWriteFormat(wsStdout, ANSI_GREEN "\nNo Errors.\n" ANSI_RESET);
   }
 
-  AcirFunction funcOptimized = { .type = NULL, .code = NULL, .name = "main" };
+  AcirFunction optimizerFunc = { .type = NULL, .name = "main" };
+  AcirBuilder optimizerBuilder;
+  AcirBuilder_Init(&optimizerBuilder, &optimizerFunc, allocator);
 
-  AcirBuilder builder;
-  AcirBuilder_Init(&builder, &funcOptimized, allocator);
+  AcirFunction outputFunc = { .type = NULL, .name = "main" };
+  AcirBuilder outputBuilder;
+  AcirBuilder_Init(&outputBuilder, &outputFunc, allocator);
 
   AcirOptimizer optimizer;
   AcirOptimizer_Init(&optimizer, &(const AcirOptimizer_InitInfo){
     .allocator = allocator,
-    .source = &func,
-    .builder = &builder
+    .source = &inputFunc,
+    .builder = &optimizerBuilder
   });
 
   AcirOptimizer_Analyze(&optimizer);
   AcirOptimizer_ConstantFold(&optimizer);
   AcirOptimizer_DeadCode(&optimizer);
 
-  puts(ANSI_GRAY "\n" SEPARATOR "[ " ANSI_MAGENTA "Optimized IR" ANSI_GRAY " ]" SEPARATOR ANSI_RESET);
-  for(const AcirInstr *instr = builder.target->code; ; instr = &builder.instrs[instr->next]) {
-    AcirInstr_Print(wsStdout, instr);
-    AnchWriteString(wsStdout, "\n");
-    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
-  }
+  AcirBuilder_BuildNormalized(&optimizerBuilder, &outputBuilder);
 
-  AcirBuilder_Free(&builder);
+  AcirBuilder_Free(&optimizerBuilder);
   AcirOptimizer_Free(&optimizer);
+
+  WRITE_SEPARATOR("Optimized IR");
+  AcirFunction_Print(&outputFunc, wsStdout);
+
+  AcirBuilder_Free(&outputBuilder);
 }

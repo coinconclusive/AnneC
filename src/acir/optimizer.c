@@ -194,7 +194,7 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
   assert(self->builder != NULL);
   assert(self->source != NULL);
 
-  const AcirInstr *instr = self->source->code;
+  const AcirInstr *instr = &self->source->instrs[self->source->code];
   AllocAtLeast_Instrs_(self, instr->index + 1);
   self->instrs[instr->index].prev = ACIR_INSTR_NULL_INDEX;
   // AnchWriteString(wsStdout, ANSI_BLUE "\nInitial:\n" ANSI_RESET);
@@ -354,7 +354,7 @@ void AcirOptimizer_DeadCode(AcirOptimizer *self) {
 
     if(shouldRemove) {
       if(self->instrs[instr->index].prev == ACIR_INSTR_NULL_INDEX) {
-        self->builder->target->code = &self->builder->instrs[instr->next];
+        self->builder->target->code = instr->next;
       } else {
         self->builder->instrs[self->instrs[instr->index].prev].next = instr->next;
       }
