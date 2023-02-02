@@ -210,9 +210,9 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
   // );
   
   while(instr != NULL) {
-    if(instr->next != ACIR_INSTR_NULL_INDEX) {
-      AllocAtLeast_Instrs_(self, instr->next + 1);
-      self->instrs[instr->next].prev = instr->index;
+    if(instr->next.idx != ACIR_INSTR_NULL_INDEX) {
+      AllocAtLeast_Instrs_(self, instr->next.idx + 1);
+      self->instrs[instr->next.idx].prev = instr->index;
     }
 
     // AnchWriteString(wsStdout, ANSI_BLUE "Reading instruction:\n" ANSI_RESET);
@@ -278,13 +278,14 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
       if(operandCount == 2 && MaybeGetImmValue_(self, &oinstr->val)) {
         binding->flags |= ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT;
         ConstEvalInstr_(self, &binding->constant, oinstr);
+        oinstr->opcode = ACIR_OPCODE_SET;
+        oinstr->val = (AcirOperand){ .type = ACIR_OPERAND_TYPE_IMMEDIATE, .imm = binding->constant };
       } else if(operandCount == 3 && MaybeGetImmValue_(self, &oinstr->lhs) && MaybeGetImmValue_(self, &oinstr->rhs)) {
         binding->flags |= ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT;
         ConstEvalInstr_(self, &binding->constant, oinstr);
+        oinstr->opcode = ACIR_OPCODE_SET;
+        oinstr->val = (AcirOperand){ .type = ACIR_OPERAND_TYPE_IMMEDIATE, .imm = binding->constant };
       }
-
-      oinstr->opcode = ACIR_OPCODE_SET;
-      oinstr->val = (AcirOperand){ .type = ACIR_OPERAND_TYPE_IMMEDIATE, .imm = binding->constant };
     } else if(oinstr->opcode == ACIR_OPCODE_SET && oinstr->val.type == ACIR_OPERAND_TYPE_IMMEDIATE) {
       // AnchWriteFormat(wsStdout, ANSI_BLUE "BindingGetOrCreate_" ANSI_RESET "(self, %zu)\n", oinstr->out.idx);
       AcirOptimizer_Binding *binding = BindingGetOrCreate_(self, oinstr->out.idx);
@@ -303,8 +304,8 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
     }
 
     self->lastInstr = instr->index;
-    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
-    instr = &self->source->instrs[instr->next];
+    if(instr->next.idx == ACIR_INSTR_NULL_INDEX) break;
+    instr = &self->source->instrs[instr->next.idx];
   }
 
   self->didAnalyze = true;
@@ -318,7 +319,7 @@ void AcirOptimizer_DeadCode(AcirOptimizer *self) {
   assert(self != NULL);
   AcirInstr *instr = &self->builder->instrs[self->lastInstr];
   assert(instr->opcode == ACIR_OPCODE_RET);
-  assert(instr->next == ACIR_INSTR_NULL_INDEX);
+  assert(instr->next.idx == ACIR_INSTR_NULL_INDEX);
 
   while(true) {
     bool shouldRemove = false;
@@ -354,7 +355,7 @@ void AcirOptimizer_DeadCode(AcirOptimizer *self) {
 
     if(shouldRemove) {
       if(self->instrs[instr->index].prev == ACIR_INSTR_NULL_INDEX) {
-        self->builder->target->code = instr->next;
+        self->builder->target->code = instr->next.idx;
       } else {
         self->builder->instrs[self->instrs[instr->index].prev].next = instr->next;
       }

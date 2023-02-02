@@ -82,51 +82,71 @@ const char *AcirBasicValueType_Description(AcirBasicValueType type) {
   return AcirBasicValueType_Info[type].description;
 }
 
-void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self) {
+void AcirInstr_PrintIndent(const AcirInstr *self, AnchCharWriteStream *out, int indent) {
   if(!self) { AnchWriteFormat(out, ANSI_RED "<null instruction>" ANSI_RESET); return; }
   
   if(self->opcode == ACIR_OPCODE_SET) {
     AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | ", self->index);
-    AcirOperand_Print(out, &self->out);
-    AnchWriteString(out, ".");
-    AcirValueType_Print(out, self->type);
-    AnchWriteString(out, " = ");
-    AcirOperand_Print(out, &self->val);
-  } else {
-    AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | " ANSI_BLUE "%s" ANSI_RESET ".",
-      self->index, AcirOpcode_Mnemonic(self->opcode));
-    
-    AcirValueType_Print(out, self->type);
+    for(int i = 0; i < indent; ++i) AnchWriteString(wsStdout, "  ");
+    AcirOperand_Print(&self->out, out);
+    AnchWriteString(out, " =.");
+    AcirValueType_Print(self->type, out);
     AnchWriteString(out, " ");
+    AcirOperand_Print(&self->val, out);
+  } else if(self->opcode == ACIR_OPCODE_PHI) {
+    AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | ", self->index);
+    for(int i = 0; i < indent; ++i) AnchWriteString(wsStdout, "  ");
+    AcirOperand_Print(&self->out, out);
+    AnchWriteString(out, " = " ANSI_BLUE "phi." ANSI_RESET);
+    AcirValueType_Print(self->type, out);
+    for(size_t i = 0; i < self->phi.count; ++i) {
+      AnchWriteFormat(out, " (" ANSI_GRAY "<- " ANSI_RESET "$" ANSI_YELLOW "%zu" ANSI_RESET ")", self->phi.idxs[i]);
+    }
+  } else {
+    AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | ", self->index);
+    for(int i = 0; i < indent; ++i) AnchWriteString(wsStdout, "  ");
 
     int operandCount = AcirOpcode_OperandCount(self->opcode);
     if(operandCount == 1) {
-      AcirOperand_Print(out, &self->val);
+      AnchWriteFormat(out, ANSI_BLUE "%s" ANSI_RESET ".", AcirOpcode_Mnemonic(self->opcode));
+      AcirValueType_Print(self->type, out);
+      AnchWriteString(out, " ");
+      AcirOperand_Print(&self->val, out);
     } else if(operandCount == 2) {
-      AcirOperand_Print(out, &self->val);
-      AnchWriteString(out, ", ");
-      AcirOperand_Print(out, &self->out);
+      AcirOperand_Print(&self->out, out);
+      AnchWriteString(out, " = ");
+      AnchWriteFormat(out, ANSI_BLUE "%s" ANSI_RESET ".", AcirOpcode_Mnemonic(self->opcode));
+      AcirValueType_Print(self->type, out);
+      AnchWriteString(out, " ");
+      AcirOperand_Print(&self->val, out);
     } else if(operandCount == 3) {
-      AcirOperand_Print(out, &self->lhs);
-      AnchWriteString(out, ", ");
-      AcirOperand_Print(out, &self->rhs);
-      AnchWriteString(out, ", ");
-      AcirOperand_Print(out, &self->out);
+      AcirOperand_Print(&self->out, out);
+      AnchWriteString(out, " = ");
+      AnchWriteFormat(out, ANSI_BLUE "%s" ANSI_RESET ".", AcirOpcode_Mnemonic(self->opcode));
+      AcirValueType_Print(self->type, out);
+      AnchWriteString(out, " ");
+      AcirOperand_Print(&self->lhs, out);
+      AnchWriteString(out, " ");
+      AcirOperand_Print(&self->rhs, out);
     } else {
       AnchWriteFormat(out, ANSI_RED "<bad operand count (%d)>" ANSI_RESET, operandCount);
     }
   }
 
-  if(self->next == ACIR_INSTR_NULL_INDEX)
-    AnchWriteString(out, ANSI_GRAY  " -> end" ANSI_RESET);
-  else if(self->next != self->index + 1)
-    AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next);
+  if(self->opcode == ACIR_OPCODE_BR) {
+    AnchWriteFormat(out, ANSI_GRAY " -> %zu | %zu" ANSI_RESET, self->next.bt, self->next.bf);
+  } else {
+    if(self->next.idx == ACIR_INSTR_NULL_INDEX)
+      AnchWriteString(out, ANSI_GRAY  " -> end" ANSI_RESET);
+    else if(self->next.idx != self->index + 1)
+      AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next.idx);
+  }
 }
 
-void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
+void AcirOperand_Print(const AcirOperand *self, AnchCharWriteStream *out) {
   if(!self) { AnchWriteFormat(out, ANSI_RED "<null operand>" ANSI_RESET); return; } 
   if(self->type == ACIR_OPERAND_TYPE_IMMEDIATE) {
-    AcirValueType_Print(out, self->imm.type);
+    AcirValueType_Print(self->imm.type, out);
     AnchWriteString(out, "#" ANSI_GREEN);
     if(!self->imm.type) {
       AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
@@ -158,24 +178,42 @@ void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
   }
 }
 
-void AcirValueType_Print(AnchCharWriteStream *out, const AcirValueType *self) {
+void AcirValueType_Print(const AcirValueType *self, AnchCharWriteStream *out) {
   if(!self) { AnchWriteFormat(out, ANSI_RED "<null value type>" ANSI_RESET); return; } 
   if(self->type == ACIR_VALUE_TYPE_BASIC) {
     AnchWriteFormat(out, ANSI_GRAY "%s" ANSI_RESET, AcirBasicValueType_Mnemonic(self->basic));
   } else if(self->type == ACIR_VALUE_TYPE_POINTER) {
     AnchWriteFormat(out, ANSI_GRAY "*" ANSI_RESET);
-    AcirValueType_Print(out, self->pointer);
+    AcirValueType_Print(self->pointer, out);
   } else {
     AnchWriteFormat(out, ANSI_RED "<bad value type (%d)>" ANSI_RESET, self->type);
   }
 }
 
-void AcirFunction_Print(const AcirFunction *self, AnchCharWriteStream *out) {
-  for(const AcirInstr *instr = &self->instrs[self->code]; ; instr = &self->instrs[instr->next]) {
-    AcirInstr_Print(wsStdout, instr);
+AcirInstrIndex Function_Print_(const AcirFunction *self, AnchCharWriteStream *out, AcirInstrIndex start, int indent) {
+  for(const AcirInstr *instr = &self->instrs[start]; ; instr = &self->instrs[instr->next.idx]) {
+    if(instr->opcode == ACIR_OPCODE_PHI) return instr->index;
+    AcirInstr_PrintIndent(instr, wsStdout, indent);
     AnchWriteString(wsStdout, "\n");
-    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
+    if(instr->opcode == ACIR_OPCODE_BR) {
+      for(int i = 0; i < indent; ++i) AnchWriteString(wsStdout, "  ");
+      AnchWriteString(wsStdout, ANSI_GRAY "--" ANSI_RESET ">" ANSI_GRAY " true:\n" ANSI_RESET);
+      AcirInstrIndex ti = Function_Print_(self, out, instr->next.bt, indent + 1);
+      for(int i = 0; i < indent; ++i) AnchWriteString(wsStdout, "  ");
+      AnchWriteString(wsStdout, ANSI_GRAY "--" ANSI_RESET ">" ANSI_GRAY " false:\n" ANSI_RESET);
+      AcirInstrIndex fi = Function_Print_(self, out, instr->next.bf, indent + 1);
+      assert(fi == ti);
+      AnchWriteString(wsStdout, ANSI_GRAY "--" ANSI_RESET ">" ANSI_GRAY "\n" ANSI_RESET);
+      instr = &self->instrs[fi];
+      AcirInstr_PrintIndent(instr, wsStdout, indent);
+      AnchWriteString(wsStdout, "\n");
+    }
+    if(instr->next.idx == ACIR_INSTR_NULL_INDEX) return instr->index;
   }
+}
+
+void AcirFunction_Print(const AcirFunction *self, AnchCharWriteStream *out) {
+  Function_Print_(self, out, self->code, 0);
 }
 
 bool AcirBasicValueType_Equals(const AcirValueType *self, const AcirValueType *other) {
@@ -269,7 +307,7 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
   AnchWriteString(wsStderr, ANSI_RED "\nError: " ANSI_RESET);
   AnchWriteFormatV(wsStderr, format, va);
   AnchWriteString(wsStderr, "\n");
-  AcirInstr_Print(wsStderr, instr);
+  AcirInstr_Print(instr, wsStderr);
   AnchWriteString(wsStderr, "\n");
   if(notes) AnchWriteString(wsStderr, "\n");
   while(notes && *notes != ';') {
@@ -277,19 +315,19 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
     switch(*notes) {
       case 'E':
         AnchWriteString(wsStderr, "expected `");
-        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AcirValueType_Print(va_arg(va, const AcirValueType *), wsStderr);
         AnchWriteString(wsStderr, "`, but got `");
-        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AcirValueType_Print(va_arg(va, const AcirValueType *), wsStderr);
         AnchWriteString(wsStderr, "` instead.");
         break;
       case 'G':
         AnchWriteString(wsStderr, "got `");
-        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AcirValueType_Print(va_arg(va, const AcirValueType *), wsStderr);
         AnchWriteString(wsStderr, "`");
         break;
       case 'A':
         AnchWriteString(wsStderr, "`");
-        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AcirValueType_Print(va_arg(va, const AcirValueType *), wsStderr);
         AnchWriteString(wsStderr, "` is not allowed.");
         break;
       case 'I':
@@ -298,7 +336,7 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
       case 'O': {
         const AcirOperand *op = va_arg(va, const AcirOperand *);
         AnchWriteFormat(wsStderr, "got %s `", AcirOperandType_Name(op->type));
-        AcirValueType_Print(wsStderr, ValidationContext_TypeOf(self, op));
+        AcirValueType_Print(ValidationContext_TypeOf(self, op), wsStderr);
         AnchWriteString(wsStderr, "`");
       } break;
       case 's':
@@ -317,6 +355,20 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
 }
 
 static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirInstr *instr) {
+  if(instr->opcode == ACIR_OPCODE_PHI) {
+    // ValidationContext_Binding_ *binding = .
+    // if(binding != NULL && binding->exists)
+    //     ValidationContext_Error_(self, instr,
+    //       ANSI_RESET "binding $"
+    //       ANSI_YELLOW "%d"
+    //       ANSI_RESET " might be set multiple times.", op->idx);
+    
+    ValidationContext_Binding_ *binding = ValidationContext_GetOrCreateBinding(self, instr->out.idx);
+    binding->exists = true;
+    binding->type = *instr->type;
+    return;
+  }
+
   const char *sig = AcirOpcode_Signature(instr->opcode);
   assert(sig != NULL);
 
@@ -434,7 +486,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
         opname, index + 1, typeRef, opType);
     }
 
-    if(instr->opcode == ACIR_OPCODE_RET && instr->next != ACIR_INSTR_NULL_INDEX) {
+    if(instr->opcode == ACIR_OPCODE_RET && instr->next.idx != ACIR_INSTR_NULL_INDEX) {
       ValidationContext_Error_(self, instr, "the `" ANSI_BLUE "ret" ANSI_RESET "` instruction has to be last.");
     }
 
@@ -451,11 +503,11 @@ int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
 
   for(const AcirInstr *instr = &self->instrs[self->code]; instr != NULL;) {
     ValidationContext_CheckInstr_(&context, instr);
-    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
-    if(instr->next >= self->instrCount)
+    if(instr->next.idx == ACIR_INSTR_NULL_INDEX) break;
+    if(instr->next.idx >= self->instrCount)
       ValidationContext_Error_(&context, instr,
-        "!I;Non-existent next instruction %zu.", instr->next, self->instrCount);
-    instr = &self->instrs[instr->next];
+        "!I;Non-existent next instruction %zu.", instr->next.idx, self->instrCount);
+    instr = &self->instrs[instr->next.idx];
   }
 
   if(context.bindingCount > 0)
@@ -513,11 +565,11 @@ AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index) {
 
 void AcirBuilder_BuildNormalized(const AcirBuilder *self, AcirBuilder *target) {
   size_t index = 0;
-  for(AcirInstr *instr = &self->instrs[self->target->code]; ; instr = &self->instrs[instr->next]) {
+  for(AcirInstr *instr = &self->instrs[self->target->code]; ; instr = &self->instrs[instr->next.idx]) {
     AcirInstr *tinstr = AcirBuilder_Add(target, index);
     *tinstr = *instr;
     tinstr->index = index;
-    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
-    tinstr->next = ++index;
+    if(instr->next.idx == ACIR_INSTR_NULL_INDEX) break;
+    tinstr->next.idx = ++index;
   }
 }

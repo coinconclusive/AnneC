@@ -27,26 +27,37 @@ int main(int argc, char *argv[]) {
   const AcirValueType *Tuint64 = &valueTuint64;
   AcirValueType valueTvoid = { .type = ACIR_VALUE_TYPE_BASIC, .basic = ACIR_BASIC_VALUE_TYPE_VOID };
   const AcirValueType *Tvoid = &valueTvoid;
-  
+#define ACIR_OPERAND_TYPE_BRANCH 2
   AcirInstr instrs[] = {
     (AcirInstr){ 0, ACIR_OPCODE_SET, Tuint64, 1,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 0 },
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 64 }, },
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, .imm = { Tuint64, .uint64 = 64 } }, },
     (AcirInstr){ 1, ACIR_OPCODE_SET, Tuint64, 2,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 1 },
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 12 }, },
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, .imm = { Tuint64, .uint64 = 12 } }, },
     (AcirInstr){ 2, ACIR_OPCODE_ADD, Tuint64, 3,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 },
       .lhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 1 },
       .rhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 0 }, },
-    (AcirInstr){ 3, ACIR_OPCODE_EFF, Tuint64, 4,
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 0 },
-      .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 3 }, },
-    (AcirInstr){ 4, ACIR_OPCODE_SET, Tuint64, 5,
+    (AcirInstr){ 3, ACIR_OPCODE_EQL, Tuint64, 4,
+      .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 3 },
+      .lhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 },
+      .rhs = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, .imm = { Tuint64, .uint64 = 32 } }, },
+    (AcirInstr){ 4, ACIR_OPCODE_BR, Tuint64, { .bt = 5, .bf = 6 },
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 3 }, },
+    (AcirInstr){ 5, ACIR_OPCODE_ADD, Tuint64, 7,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 4 },
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 15 }, },
-    (AcirInstr){ 5, ACIR_OPCODE_RET, Tuint64, ACIR_INSTR_NULL_INDEX,
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 }, },
+      .lhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 },
+      .rhs = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, .imm = { Tuint64, .uint64 = 1 } }, },
+    (AcirInstr){ 6, ACIR_OPCODE_ADD, Tuint64, 7,
+      .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 5 },
+      .lhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 },
+      .rhs = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, .imm = { Tuint64, .uint64 = 2 } }, },
+    (AcirInstr){ 7, ACIR_OPCODE_PHI, Tuint64, 8,
+      .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 6 },
+      .phi = (AcirPhi){ 2, (AcirVariableValue[]){ 4, 5 } }, },
+    (AcirInstr){ 9, ACIR_OPCODE_RET, Tuint64, ACIR_INSTR_NULL_INDEX,
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 6 }, },
   };
 
   AcirFunction inputFunc = {

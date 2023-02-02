@@ -32,7 +32,9 @@
   O(BIT_COR, bitcor, 3, ".T!float32!float64!void T, T, wT", "bitwise \"or\" booleans", true) S \
   O(BIT_XOR, bitxor, 3, ".T!float32!float64!void T, T, wT", "bitwise \"xor\" booleans", true) S \
   O(BIT_NOT, bitnot, 2, ".T!float32!float64!void T, wT", "bitwise negate boolean", true) S \
-  O(EFF, eff, 2, ".T any, wT", "perform side effect", false)
+  O(EFF, eff, 2, ".T any, wT", "perform side effect", false) S \
+  O(PHI, phi, 0, NULL, "phi", false) S \
+  O(BR, br, 1, " bool", "branch", false)
 
 typedef uint8_t AcirOpcode;
 
@@ -137,27 +139,39 @@ typedef struct {
   };
 } AcirOperand;
 
+typedef struct {
+  size_t count;
+  AcirVariableValue *idxs;
+} AcirPhi;
+
 const char *AcirOperandType_Name(AcirOperandType type);
 
 #define ACIR_INSTR_NULL_INDEX ((size_t)-1)
 
 typedef struct AcirInstr AcirInstr;
+typedef size_t AcirInstrIndex;
 struct AcirInstr {
-  size_t index;
+  AcirInstrIndex index;
   AcirOpcode opcode;
   const AcirValueType *type;
-  size_t next;
+  union {
+    struct { AcirInstrIndex bt, bf; };
+    AcirInstrIndex idx;
+  } next;
   AcirOperand out;
   union {
     struct { AcirOperand lhs, rhs; };
     AcirOperand val;
+    AcirPhi phi;
   };
 };
 
-// TODO: swap arguments around
-void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self);
-void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self);
-void AcirValueType_Print(AnchCharWriteStream *out, const AcirValueType *self);
+void AcirInstr_PrintIndent(const AcirInstr *self, AnchCharWriteStream *out, int indent);
+static inline void AcirInstr_Print(const AcirInstr *self, AnchCharWriteStream *out) {
+  AcirInstr_PrintIndent(self, out, 0);
+}
+void AcirOperand_Print(const AcirOperand *self, AnchCharWriteStream *out);
+void AcirValueType_Print(const AcirValueType *self, AnchCharWriteStream *out);
 
 typedef struct {
   const AcirValueType *type;
