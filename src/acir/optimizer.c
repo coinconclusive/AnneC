@@ -1,6 +1,8 @@
 #include <annec_anchor.h>
 #include <acir/acir.h>
 #include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
 #include "cli.h"
 
 void AcirOptimizer_Init(AcirOptimizer *self, const AcirOptimizer_InitInfo *info) {
@@ -100,6 +102,93 @@ int GetOperands_(const AcirInstr *instr, const AcirOperand **ops) {
   }
 }
 
+const AcirImmediateValue *MaybeGetImmValue_(const AcirOptimizer *self, const AcirOperand *op) {
+  assert(self != NULL);
+  assert(op != NULL);
+  if(op->type == ACIR_OPERAND_TYPE_IMMEDIATE) return &op->imm;
+  if(op->type == ACIR_OPERAND_TYPE_BINDING) {
+    assert(op->idx < self->bindingCount); // TODO: BindingExists_(self, op->idx);
+    assert(self->bindings[op->idx].exists);
+    if(self->bindings[op->idx].flags & ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT)
+      return &self->bindings[op->idx].constant;
+  }
+  return NULL;
+}
+
+#define SWITCH_EVAL_CASE_(CASE, O, ARG, ...) case CASE: O(CASE, ARG __VA_OPT__(,) __VA_ARGS__); break
+#define SWITCH_EVAL_TYPEI_(TYPE, O, ...) switch(TYPE) { \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT64, O, sint64 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT64, O, uint64 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT32, O, sint32 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT32, O, uint32 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT16, O, sint16 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT16, O, uint16 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT8, O, sint8 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT8, O, uint8 __VA_OPT__(,) __VA_ARGS__); \
+  default: assert(false && "switch case not implemented"); break; }
+#define SWITCH_EVAL_TYPE_(TYPE, O, ...) switch(TYPE) { \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT64, O, sint64 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT64, O, uint64 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT32, O, sint32 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT32, O, uint32 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT16, O, sint16 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT16, O, uint16 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_SINT8, O, sint8 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_UINT8, O, uint8 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_FLOAT32, O, float32 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_FLOAT64, O, float64 __VA_OPT__(,) __VA_ARGS__); \
+  SWITCH_EVAL_CASE_(ACIR_BASIC_VALUE_TYPE_BOOL, O, boolean __VA_OPT__(,) __VA_ARGS__); \
+  default: assert(false && "switch case not implemented"); break; }
+
+void ConstEvalInstr_(const AcirOptimizer *self, AcirImmediateValue *result, const AcirInstr *instr) {
+  assert(self != NULL);
+  assert(instr != NULL);
+  assert(result != NULL);
+
+  const AcirImmediateValue *val = NULL, *lhs = NULL, *rhs = NULL;
+  
+  int operandCount = AcirOpcode_OperandCount(instr->opcode);
+  if(operandCount == 2) {
+    val = MaybeGetImmValue_(self, &instr->val);
+  } else if(operandCount == 3) {
+    lhs = MaybeGetImmValue_(self, &instr->lhs);
+    rhs = MaybeGetImmValue_(self, &instr->rhs);
+  }
+
+  result->type = instr->type;
+
+  switch(instr->opcode) {
+#define BINOP(TYPE, FIELD, OP) result->FIELD = lhs->FIELD OP rhs->FIELD;
+#define BBINOP(TYPE, FIELD, OP) result->boolean = lhs->FIELD OP rhs->FIELD;
+#define BUNOP(TYPE, FIELD, OP) result->boolean = OP(val->FIELD);
+#define UNOP(TYPE, FIELD, OP) result->FIELD = OP(val->FIELD);
+    case ACIR_OPCODE_ADD: SWITCH_EVAL_TYPE_(instr->type->basic, BINOP, +) break;
+    case ACIR_OPCODE_SUB: SWITCH_EVAL_TYPE_(instr->type->basic, BINOP, -) break;
+    case ACIR_OPCODE_MUL: SWITCH_EVAL_TYPE_(instr->type->basic, BINOP, *) break;
+    case ACIR_OPCODE_DIV: SWITCH_EVAL_TYPE_(instr->type->basic, BINOP, /) break;
+    case ACIR_OPCODE_MOD: SWITCH_EVAL_TYPEI_(instr->type->basic, BINOP, %) break;
+    case ACIR_OPCODE_NEG: SWITCH_EVAL_TYPE_(instr->type->basic, UNOP, -) break;
+    case ACIR_OPCODE_EQL: SWITCH_EVAL_TYPE_(instr->type->basic, BBINOP, ==) break;
+    case ACIR_OPCODE_NEQ: SWITCH_EVAL_TYPE_(instr->type->basic, BBINOP, !=) break;
+    case ACIR_OPCODE_LTH: SWITCH_EVAL_TYPE_(instr->type->basic, BBINOP, <) break;
+    case ACIR_OPCODE_GTH: SWITCH_EVAL_TYPE_(instr->type->basic, BBINOP, >) break;
+    case ACIR_OPCODE_LEQ: SWITCH_EVAL_TYPE_(instr->type->basic, BBINOP, <=) break;
+    case ACIR_OPCODE_GEQ: SWITCH_EVAL_TYPE_(instr->type->basic, BBINOP, >=) break;
+    case ACIR_OPCODE_AND: BBINOP(, boolean, &&) break;
+    case ACIR_OPCODE_COR: BBINOP(, boolean, ||) break;
+    case ACIR_OPCODE_XOR: BBINOP(, boolean, ^) break;
+    case ACIR_OPCODE_NOT: BUNOP(, boolean, !) break;
+    case ACIR_OPCODE_BIT_AND: SWITCH_EVAL_TYPEI_(instr->type->basic, BINOP, &) break;
+    case ACIR_OPCODE_BIT_COR: SWITCH_EVAL_TYPEI_(instr->type->basic, BINOP, |) break;
+    case ACIR_OPCODE_BIT_XOR: SWITCH_EVAL_TYPEI_(instr->type->basic, BINOP, ^) break;
+    case ACIR_OPCODE_BIT_NOT: SWITCH_EVAL_TYPEI_(instr->type->basic, UNOP, ~) break;
+#undef BINOP
+    default:
+      assert(false && "non-consteval instruction");
+      return;
+  }
+}
+
 void AcirOptimizer_Analyze(AcirOptimizer *self) {
   assert(self->allocator != NULL);
   assert(self->builder != NULL);
@@ -107,7 +196,7 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
 
   const AcirInstr *instr = self->source->code;
   AllocAtLeast_Instrs_(self, instr->index + 1);
-  self->instrs[instr->index].prev = NULL;
+  self->instrs[instr->index].prev = ACIR_INSTR_NULL_INDEX;
   // AnchWriteString(wsStdout, ANSI_BLUE "\nInitial:\n" ANSI_RESET);
   // AnchWriteFormat(wsStdout,
   //   ANSI_MAGENTA "Self" ANSI_RESET " = {\n"
@@ -121,9 +210,9 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
   // );
   
   while(instr != NULL) {
-    if(instr->next != ACIR_INSTR_INDEX_LAST) {
+    if(instr->next != ACIR_INSTR_NULL_INDEX) {
       AllocAtLeast_Instrs_(self, instr->next + 1);
-      self->instrs[instr->next].prev = instr;
+      self->instrs[instr->next].prev = instr->index;
     }
 
     // AnchWriteString(wsStdout, ANSI_BLUE "Reading instruction:\n" ANSI_RESET);
@@ -182,6 +271,28 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
       binding->flags |= ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT;
       binding->constant = instr->val.imm;
       binding->exists = true;
+    } else if(AcirOpcode_ConstEval(oinstr->opcode)) {
+      AcirOptimizer_Binding *binding = BindingGetOrCreate_(self, oinstr->out.idx);
+      assert(!binding->exists);
+      binding->exists = true;
+      if(operandCount == 2 && MaybeGetImmValue_(self, &oinstr->val)) {
+        binding->flags |= ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT;
+        ConstEvalInstr_(self, &binding->constant, oinstr);
+      } else if(operandCount == 3 && MaybeGetImmValue_(self, &oinstr->lhs) && MaybeGetImmValue_(self, &oinstr->rhs)) {
+        binding->flags |= ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT;
+        ConstEvalInstr_(self, &binding->constant, oinstr);
+      }
+
+      oinstr->opcode = ACIR_OPCODE_SET;
+      oinstr->val = (AcirOperand){ .type = ACIR_OPERAND_TYPE_IMMEDIATE, .imm = binding->constant };
+    } else if(oinstr->opcode == ACIR_OPCODE_SET && oinstr->val.type == ACIR_OPERAND_TYPE_IMMEDIATE) {
+      // AnchWriteFormat(wsStdout, ANSI_BLUE "BindingGetOrCreate_" ANSI_RESET "(self, %zu)\n", oinstr->out.idx);
+      AcirOptimizer_Binding *binding = BindingGetOrCreate_(self, oinstr->out.idx);
+      // AnchWriteFormat(wsStdout, "  -> %p\n", binding);
+      assert(!binding->exists);
+      binding->flags |= ACIR_OPTIMIZER_BINDING_FLAG_CONSTANT;
+      binding->constant = instr->val.imm;
+      binding->exists = true;
     } else if(operandCount > 1) { // for instructions with output
       assert(oinstr->out.type == ACIR_OPERAND_TYPE_BINDING);
       // AnchWriteFormat(wsStdout, ANSI_BLUE "BindingGetOrCreate_" ANSI_RESET "(self, %zu)\n", oinstr->out.idx);
@@ -191,7 +302,8 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
       binding->exists = true;
     }
 
-    if(instr->next == ACIR_INSTR_INDEX_LAST) break;
+    self->lastInstr = instr->index;
+    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
     instr = &self->source->instrs[instr->next];
   }
 
@@ -200,14 +312,55 @@ void AcirOptimizer_Analyze(AcirOptimizer *self) {
 
 void AcirOptimizer_ConstantFold(AcirOptimizer *self) {
   assert(self != NULL);
-
-  {
-    const AcirInstr *instr = self->source->code;
-    while(instr) {
-    }
-  }
 }
 
 void AcirOptimizer_DeadCode(AcirOptimizer *self) {
+  assert(self != NULL);
+  AcirInstr *instr = &self->builder->instrs[self->lastInstr];
+  assert(instr->opcode == ACIR_OPCODE_RET);
+  assert(instr->next == ACIR_INSTR_NULL_INDEX);
 
+  while(true) {
+    bool shouldRemove = false;
+
+    int operandCount = AcirOpcode_OperandCount(instr->opcode);
+    if(!AcirOpcode_ConstEval(instr->opcode)) {
+      const AcirOperand *ops[3];
+      GetOperands_(instr, ops);
+      int maxOperandIndex = operandCount == 1 ? 1 : operandCount - 1;
+      for(int i = 0; i < maxOperandIndex; ++i) {
+        if(ops[i]->type == ACIR_OPERAND_TYPE_BINDING) {
+          assert(ops[i]->idx < self->bindingCount);
+          self->bindings[ops[i]->idx].used = true;
+        }
+      }
+    } else {
+      if(operandCount > 1 && instr->out.type == ACIR_OPERAND_TYPE_BINDING) {
+        assert(instr->out.idx < self->bindingCount);
+        bool used = self->bindings[instr->out.idx].used;
+        if(!used) shouldRemove = true;
+        else {
+          const AcirOperand *ops[3];
+          GetOperands_(instr, ops);
+          for(int i = 0; i < operandCount - 1; ++i) {
+            if(ops[i]->type == ACIR_OPERAND_TYPE_BINDING) {
+              assert(ops[i]->idx < self->bindingCount);
+              self->bindings[ops[i]->idx].used = true;
+            }
+          }
+        }
+      }
+    }
+
+    if(shouldRemove) {
+      if(self->instrs[instr->index].prev == ACIR_INSTR_NULL_INDEX) {
+        self->builder->target->code = &self->builder->instrs[instr->next];
+      } else {
+        self->builder->instrs[self->instrs[instr->index].prev].next = instr->next;
+      }
+    }
+    
+    if(self->instrs[instr->index].prev == ACIR_INSTR_NULL_INDEX) break;
+    instr = &self->builder->instrs[self->instrs[instr->index].prev];
+  }
 }

@@ -6,39 +6,38 @@
 #include <stdbool.h>
 #include <limits.h>
 
-// O(NAME, MNEMONIC, OPERAND_COUNT, SIGNATURE, DESCRIPTION)
+// O(NAME, MNEMONIC, OPERAND_COUNT, SIGNATURE, DESCRIPTION, CONSTEVAL)
 #define ACIR_OPCODES_ENUM(O, S) \
-  O(SET, <b>, 2, ".T T, wT", "init binding") S \
-  O(RET, ret, 1, ".T T", "return, must be last in block") S \
-  O(REF, ref, 2, ".T lT, w*T", "address of, reference") S \
-  O(DER, der, 2, ".T *T, wT", "dereference") S \
-  O(ADD, add, 3, ".T T, T, wT", "add two numbers") S \
-  O(SUB, sub, 3, ".T T, T, wT", "substract two numbers") S \
-  O(MUL, mul, 3, ".T T, T, wT", "multiply two numbers") S \
-  O(DIV, div, 3, ".T T, T, wT", "divide two numbers") S \
-  O(MOD, mod, 3, ".T T, T, wT", "\"modulo\" two numbers") S \
-  O(NEG, neg, 2, ".T T, wT", "negate number") S \
-  O(INC, inc, 1, ".T wT", "increment number") S \
-  O(DEC, dec, 1, ".T wT", "decrement number") S \
-  O(EQL, eql, 3, ".T T, T, wbool", "check if two numbers are equal") S \
-  O(NEQ, neq, 3, ".T T, T, wbool", "inverse of EQL") S \
-  O(LTH, lth, 3, ".T T, T, wbool", "check if a number is less") S \
-  O(GTH, gth, 3, ".T T, T, wbool", "check if a number is greater") S \
-  O(LEQ, leq, 3, ".T T, T, wbool", "check if a number is less or equal") S \
-  O(GEQ, geq, 3, ".T T, T, wbool", "check if a number is greater or equal") S \
-  O(AND, and, 3, " bool, bool, wbool", "\"and\" booleans") S \
-  O(COR, cor, 3, " bool, bool, wbool", "\"or\" booleans") S \
-  O(XOR, xor, 3, " bool, bool, wbool", "\"xor\" booleans") S \
-  O(NOT, not, 2, " bool, wbool", "negate boolean") S \
-  O(BIT_AND, bitand, 3, " bool, bool, wbool", "bitwise \"and\" booleans") S \
-  O(BIT_COR, bitcor, 3, " bool, bool, wbool", "bitwise \"or\" booleans") S \
-  O(BIT_XOR, bitxor, 3, " bool, bool, wbool", "bitwise \"xor\" booleans") S \
-  O(BIT_NOT, bitnot, 2, " bool, wbool", "bitwise negate boolean")
+  O(SET, <b>, 2, ".T!void T, wT", "init binding", true) S \
+  O(RET, ret, 1, ".T T", "return, must be last in block", false) S \
+  O(REF, ref, 2, ".T lT, w*T", "address of, reference", false) S \
+  O(DER, der, 2, ".T!void *T, wT", "dereference", false) S \
+  O(ADD, add, 3, ".T!void T, T, wT", "add two numbers", true) S \
+  O(SUB, sub, 3, ".T!void T, T, wT", "substract two numbers", true) S \
+  O(MUL, mul, 3, ".T!void T, T, wT", "multiply two numbers", true) S \
+  O(DIV, div, 3, ".T!void T, T, wT", "divide two numbers", true) S \
+  O(MOD, mod, 3, ".T!void!float32!float64 T, T, wT", "\"modulo\" two numbers", true) S \
+  O(NEG, neg, 2, ".T!void T, wT", "negate number", true) S \
+  O(EQL, eql, 3, ".T!void T, T, wbool", "check if two numbers are equal", true) S \
+  O(NEQ, neq, 3, ".T!void T, T, wbool", "inverse of EQL", true) S \
+  O(LTH, lth, 3, ".T!void T, T, wbool", "check if a number is less", true) S \
+  O(GTH, gth, 3, ".T!void T, T, wbool", "check if a number is greater", true) S \
+  O(LEQ, leq, 3, ".T!void T, T, wbool", "check if a number is less or equal", true) S \
+  O(GEQ, geq, 3, ".T!void T, T, wbool", "check if a number is greater or equal", true) S \
+  O(AND, and, 3, " bool, bool, wbool", "\"and\" booleans", true) S \
+  O(COR, cor, 3, " bool, bool, wbool", "\"or\" booleans", true) S \
+  O(XOR, xor, 3, " bool, bool, wbool", "\"xor\" booleans", true) S \
+  O(NOT, not, 2, " bool, wbool", "negate boolean", true) S \
+  O(BIT_AND, bitand, 3, ".T!float32!float64!void T, T, wT", "bitwise \"and\" booleans", true) S \
+  O(BIT_COR, bitcor, 3, ".T!float32!float64!void T, T, wT", "bitwise \"or\" booleans", true) S \
+  O(BIT_XOR, bitxor, 3, ".T!float32!float64!void T, T, wT", "bitwise \"xor\" booleans", true) S \
+  O(BIT_NOT, bitnot, 2, ".T!float32!float64!void T, wT", "bitwise negate boolean", true) S \
+  O(EFF, eff, 2, ".T any, wT", "perform side effect", false)
 
 typedef uint8_t AcirOpcode;
 
 #define COMMA ,
-#define TMP(NAME, MNEMONIC, OPERAND_COUNT, SIGNATURE, DESCRIPTION) ACIR_OPCODE_##NAME
+#define TMP(NAME, ...) ACIR_OPCODE_##NAME
 enum AcirOpcodes { ACIR_OPCODES_ENUM(TMP, COMMA), ACIR_OPCODE_MAX_ };
 #undef TMP
 #undef COMMA
@@ -48,7 +47,7 @@ const char *AcirOpcode_Mnemonic(AcirOpcode opcode);
 int AcirOpcode_OperandCount(AcirOpcode opcode);
 const char *AcirOpcode_Signature(AcirOpcode opcode);
 const char *AcirOpcode_Description(AcirOpcode opcode);
-
+bool AcirOpcode_ConstEval(AcirOpcode opcode);
 
 // O(NAME, MNEMONIC, DESCRIPTION)
 #define ACIR_BASIC_VALUE_TYPES_ENUM(O, S) \
@@ -140,7 +139,7 @@ typedef struct {
 
 const char *AcirOperandType_Name(AcirOperandType type);
 
-#define ACIR_INSTR_INDEX_LAST (~(size_t)0)
+#define ACIR_INSTR_NULL_INDEX ((size_t)-1)
 
 typedef struct AcirInstr AcirInstr;
 struct AcirInstr {
@@ -180,6 +179,8 @@ void AcirBuilder_Init(AcirBuilder *self, AcirFunction *target, AnchAllocator *al
 void AcirBuilder_Free(AcirBuilder *self);
 AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index);
 
+// TODO: move these to a local header file? maybe just impl file?
+
 typedef size_t AcirOptimizerBindingFlags;
 enum AcirOptimizerBindingFlags {
   ACIR_OPTIMIZER_BINDING_FLAG_NONE = 0,
@@ -188,7 +189,7 @@ enum AcirOptimizerBindingFlags {
 };
 
 typedef struct {
-  bool exists;
+  bool exists, used;
   AcirOptimizerBindingFlags flags;
   AcirImmediateValue constant;
 } AcirOptimizer_Binding;
@@ -196,7 +197,7 @@ typedef struct {
 typedef struct {
   bool exists;
   bool used;
-  const AcirInstr *prev;
+  size_t prev;
 } AcirOptimizer_Instr;
 
 typedef struct {
@@ -207,6 +208,7 @@ typedef struct {
   size_t bindingCount;
   AcirOptimizer_Binding *bindings;
   AnchAllocator *allocator;
+  size_t lastInstr;
   bool didAnalyze;
 } AcirOptimizer;
 

@@ -7,13 +7,14 @@
 
 #define COMMA ,
 
-#define TMP(A, B, C, D, E) { #A, #B, C, D, E }
+#define TMP(A, B, C, D, E, F) { #A, #B, C, D, E, F }
 static const struct {
   const char *name;
   const char *mnemonic;
   int operandCount;
   const char *signature;
   const char *description;
+  bool consteval;
 } AcirOpcode_Info[] = { ACIR_OPCODES_ENUM(TMP, COMMA) };
 #undef TMP
 
@@ -59,6 +60,12 @@ const char *AcirOpcode_Description(AcirOpcode opcode) {
   if(opcode >= ACIR_OPCODE_MAX_) return NULL; // ANSI_RED "<bad opcode>" ANSI_RESET;
   return AcirOpcode_Info[opcode].description;
 }
+
+bool AcirOpcode_ConstEval(AcirOpcode opcode) {
+  if(opcode >= ACIR_OPCODE_MAX_) return NULL; // false;
+  return AcirOpcode_Info[opcode].consteval;
+}
+
 
 const char *AcirBasicValueType_Name(AcirBasicValueType type) {
   if(type >= ACIR_BASIC_VALUE_TYPE_MAX_) NULL; // return ANSI_RED "<bad value type>" ANSI_RESET;
@@ -110,7 +117,7 @@ void AcirInstr_Print(AnchCharWriteStream *out, const AcirInstr *self) {
     }
   }
 
-  if(self->next == ACIR_INSTR_INDEX_LAST)
+  if(self->next == ACIR_INSTR_NULL_INDEX)
     AnchWriteString(out, ANSI_GRAY  " -> end" ANSI_RESET);
   else if(self->next != self->index + 1)
     AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next);
@@ -137,6 +144,8 @@ void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
     case ACIR_BASIC_VALUE_TYPE_UINT8: AnchWriteFormat(out, "%u", self->imm.uint8); break;
     case ACIR_BASIC_VALUE_TYPE_FLOAT32: AnchWriteFormat(out, "%f", self->imm.float32); break;
     case ACIR_BASIC_VALUE_TYPE_FLOAT64: AnchWriteFormat(out, "%f", self->imm.float64); break;
+    case ACIR_BASIC_VALUE_TYPE_BOOL: AnchWriteString(out, self->imm.boolean ? "true" : "false"); break;
+    case ACIR_BASIC_VALUE_TYPE_VOID: AnchWriteString(out, "void"); break;
     default:
       AnchWriteFormat(out, ANSI_RED "<bad basic value type (%d)>", self->imm.type->basic);
       AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
@@ -270,6 +279,11 @@ static void ValidationContext_Error_(ValidationContext_ *self, const AcirInstr *
         AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
         AnchWriteString(wsStderr, "`");
         break;
+      case 'A':
+        AnchWriteString(wsStderr, "`");
+        AcirValueType_Print(wsStderr, va_arg(va, const AcirValueType *));
+        AnchWriteString(wsStderr, "` is not allowed.");
+        break;
       case 'I':
         AnchWriteFormat(wsStderr, "Instruction count is %zu", va_arg(va, size_t));
         break;
@@ -305,6 +319,28 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
     ++sig;
     generic = *sig;
     ++sig;
+    while(isspace(*sig)) ++sig;
+    while(*sig == '!') {
+      ++sig;
+
+      size_t length = 0;
+      const char *start = sig;
+      while(isalpha(*sig)) { ++sig; ++length; }
+      while(isspace(*sig)) ++sig;
+
+      for(size_t i = 0; i < ACIR_BASIC_VALUE_TYPE_MAX_; ++i) {
+        const char *mnemonic = AcirBasicValueType_Mnemonic(i);
+        assert(mnemonic != NULL);
+        if(length == strlen(mnemonic) && strncmp(mnemonic, start, length) == 0) {
+          AcirValueType type = { ACIR_VALUE_TYPE_BASIC, .basic = i };
+          if(AcirBasicValueType_Equals(instr->type, &type)) {
+            ValidationContext_Error_(self, instr, "!A;generic instruction does not allow provided type.", &type);
+          }
+
+          break;
+        }
+      }
+    }
   }
   
   while(isspace(*sig)) ++sig;
@@ -334,7 +370,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
     
     if(length == 1 && generic && *start == generic) {
       typeRef = instr->type;
-    } else {
+    } else if(strncmp("any", start, 3) != 0) {
       for(size_t i = 0; i < ACIR_BASIC_VALUE_TYPE_MAX_; ++i) {
         const char *mnemonic = AcirBasicValueType_Mnemonic(i);
         assert(mnemonic != NULL);
@@ -390,7 +426,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
         opname, index + 1, typeRef, opType);
     }
 
-    if(instr->opcode == ACIR_OPCODE_RET && instr->next != ACIR_INSTR_INDEX_LAST) {
+    if(instr->opcode == ACIR_OPCODE_RET && instr->next != ACIR_INSTR_NULL_INDEX) {
       ValidationContext_Error_(self, instr, "the `" ANSI_BLUE "ret" ANSI_RESET "` instruction has to be last.");
     }
 
@@ -407,7 +443,7 @@ int AcirFunction_Validate(AcirFunction *self, AnchAllocator *allocator) {
 
   for(const AcirInstr *instr = self->code; instr != NULL;) {
     ValidationContext_CheckInstr_(&context, instr);
-    if(instr->next == ACIR_INSTR_INDEX_LAST) break;
+    if(instr->next == ACIR_INSTR_NULL_INDEX) break;
     if(instr->next >= self->instrCount)
       ValidationContext_Error_(&context, instr,
         "!I;Non-existent next instruction %zu.", instr->next, self->instrCount);
@@ -436,6 +472,7 @@ void AcirBuilder_Free(AcirBuilder *self) {
     AnchAllocator_Free(self->allocator, self->instrs);
   self->target->instrCount = 0;
   self->target->instrs = NULL;
+  self->target->code = NULL;
   self->allocator = NULL;
   self->target = NULL;
   self->instrs = NULL;
@@ -449,16 +486,25 @@ AcirInstr *AcirBuilder_Add(AcirBuilder *self, size_t index) {
   size_t oldInstrCount = self->target->instrCount;
   self->target->instrCount = index + 1;
 
-  if(self->target->instrCount == 0) {
+  if(oldInstrCount == 0) {
     self->target->instrs = self->instrs =
       AnchAllocator_AllocZero(self->allocator, sizeof(AcirInstr));
+    
+    self->target->code = &self->instrs[index];
   } else {
+    // TODO: make self->target->code an index...
+    ptrdiff_t firstOffset = self->target->code - self->instrs;
+    size_t firstIndex = firstOffset / sizeof(AcirInstr);
+
     self->target->instrs = self->instrs =
       AnchAllocator_Realloc(self->allocator, self->instrs,
         sizeof(AcirInstr) * self->target->instrCount);
     
     memset(self->instrs + oldInstrCount, 0,
       sizeof(AcirInstr) * (self->target->instrCount - oldInstrCount));
+    
+    // TODO: make this an index instead.
+    self->target->code = &self->instrs[firstIndex];
   }
   
   return &self->instrs[index];
