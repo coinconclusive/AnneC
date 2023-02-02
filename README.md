@@ -3,6 +3,8 @@
 
 C superset. Custom backend.
 
+![image showing input IR and optimized IR](res/screenshot.png)
+
 ## File structure
 
 * `include/` - header files.
