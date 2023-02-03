@@ -100,7 +100,7 @@ void AcirInstr_PrintIndent(const AcirInstr *self, AnchCharWriteStream *out, int 
     AnchWriteString(out, " = " ANSI_BLUE "phi." ANSI_RESET);
     AcirValueType_Print(self->type, out);
     for(size_t i = 0; i < self->phi.count; ++i) {
-      AnchWriteFormat(out, " (" ANSI_GRAY "<- " ANSI_RESET "$" ANSI_YELLOW "%zu" ANSI_RESET ")", self->phi.idxs[i]);
+      AnchWriteFormat(out, " $" ANSI_YELLOW "%zu" ANSI_RESET, self->phi.idxs[i]);
     }
   } else {
     AnchWriteFormat(out, ANSI_GRAY "%zu" ANSI_RESET " | ", self->index);
@@ -108,8 +108,13 @@ void AcirInstr_PrintIndent(const AcirInstr *self, AnchCharWriteStream *out, int 
 
     int operandCount = AcirOpcode_OperandCount(self->opcode);
     if(operandCount == 1) {
-      AnchWriteFormat(out, ANSI_BLUE "%s" ANSI_RESET ".", AcirOpcode_Mnemonic(self->opcode));
-      AcirValueType_Print(self->type, out);
+      AnchWriteFormat(out, ANSI_BLUE "%s" ANSI_RESET, AcirOpcode_Mnemonic(self->opcode));
+      assert(AcirOpcode_Signature(self->opcode) != NULL);
+      if(AcirOpcode_Signature(self->opcode)[0] == '.') {
+        // only print type if function is generic.
+        AnchWriteString(out, ".");
+        AcirValueType_Print(self->type, out);
+      }
       AnchWriteString(out, " ");
       AcirOperand_Print(&self->val, out);
     } else if(operandCount == 2) {
@@ -137,7 +142,7 @@ void AcirInstr_PrintIndent(const AcirInstr *self, AnchCharWriteStream *out, int 
     AnchWriteFormat(out, ANSI_GRAY " -> %zu | %zu" ANSI_RESET, self->next.bt, self->next.bf);
   } else {
     if(self->next.idx == ACIR_INSTR_NULL_INDEX)
-      AnchWriteString(out, ANSI_GRAY  " -> end" ANSI_RESET);
+      AnchWriteString(out, ANSI_GRAY  " -> " ANSI_CYAN "end" ANSI_RESET);
     else if(self->next.idx != self->index + 1)
       AnchWriteFormat(out, ANSI_GRAY " -> %zu" ANSI_RESET, self->next.idx);
   }
@@ -146,8 +151,14 @@ void AcirInstr_PrintIndent(const AcirInstr *self, AnchCharWriteStream *out, int 
 void AcirOperand_Print(const AcirOperand *self, AnchCharWriteStream *out) {
   if(!self) { AnchWriteFormat(out, ANSI_RED "<null operand>" ANSI_RESET); return; } 
   if(self->type == ACIR_OPERAND_TYPE_IMMEDIATE) {
-    AcirValueType_Print(self->imm.type, out);
-    AnchWriteString(out, "#" ANSI_GREEN);
+    assert(self->imm.type != NULL);
+    assert(self->imm.type->type == ACIR_VALUE_TYPE_BASIC);
+
+    if(self->imm.type->basic != ACIR_BASIC_VALUE_TYPE_BOOL
+    && self->imm.type->basic != ACIR_BASIC_VALUE_TYPE_VOID) {
+      AcirValueType_Print(self->imm.type, out);
+      AnchWriteString(out, "#" ANSI_GREEN);
+    }
     if(!self->imm.type) {
       AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
     } else if(self->imm.type->type != ACIR_VALUE_TYPE_BASIC) {
@@ -164,8 +175,8 @@ void AcirOperand_Print(const AcirOperand *self, AnchCharWriteStream *out) {
     case ACIR_BASIC_VALUE_TYPE_UINT8: AnchWriteFormat(out, "%u", self->imm.uint8); break;
     case ACIR_BASIC_VALUE_TYPE_FLOAT32: AnchWriteFormat(out, "%f", self->imm.float32); break;
     case ACIR_BASIC_VALUE_TYPE_FLOAT64: AnchWriteFormat(out, "%f", self->imm.float64); break;
-    case ACIR_BASIC_VALUE_TYPE_BOOL: AnchWriteString(out, self->imm.boolean ? "true" : "false"); break;
-    case ACIR_BASIC_VALUE_TYPE_VOID: AnchWriteString(out, "void"); break;
+    case ACIR_BASIC_VALUE_TYPE_BOOL: AnchWriteFormat(out, ANSI_CYAN "%s" ANSI_RESET, self->imm.boolean ? "true" : "false"); break;
+    case ACIR_BASIC_VALUE_TYPE_VOID: AnchWriteString(out, ANSI_CYAN "void" ANSI_RESET); break;
     default:
       AnchWriteFormat(out, ANSI_RED "<bad basic value type (%d)>", self->imm.type->basic);
       AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
@@ -424,7 +435,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
     bool last = *sig != ',';
     ++sig;
 
-    const AcirValueType *typeRef;
+    const AcirValueType *typeRef = NULL;
     AcirValueType typeValue;
     AcirValueType pointerTypeValue;
     
@@ -481,7 +492,7 @@ static void ValidationContext_CheckInstr_(ValidationContext_ *self, const AcirIn
     if(opType == NULL) {
       ValidationContext_Error_(self, instr, "%s argument (#%d) doesn't have a type.",
         opname, index + 1);
-    } else if(!AcirBasicValueType_Equals(typeRef, opType)) {
+    } else if(typeRef != NULL && !AcirBasicValueType_Equals(typeRef, opType)) {
       ValidationContext_Error_(self, instr, "!Es;%s argument (#%d) did not match type.",
         opname, index + 1, typeRef, opType);
     }

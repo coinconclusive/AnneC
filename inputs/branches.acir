@@ -1,0 +1,25 @@
+
+
+0  | $0 =.uint64 uint64#64
+1  | $1 =.uint64 uint64#12
+2  | $2 = add.uint64 $1 $0
+3  | $3 = eql.uint64 $2 uint64#32
+4  | br $3 -> 5 | 6
+---> true:
+5  |   $4 = add.uint64 $2 uint64#1 -> 8
+---> false:
+6  |   $5 = eff.uint64 void
+7  |   $6 = add.uint64 $2 $5
+8  |   $7 = leq.uint64 $6 uint64#10
+9  |   br $7 -> 10 | 12
+--->   true:
+10 |     $8 = add.uint64 $7 $2 -> 12
+--->   false:
+11 |     nop -> 12
+12 | $9 = phi.uint64 (5 -> $4) (11 -> $7) (10 -> $8)
+13 | $10 = eff.uint64 void
+14 | $11 = add.uint64 $9 $10
+15 | ret.uint64 $11 -> end
+
+
+
