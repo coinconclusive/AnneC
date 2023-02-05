@@ -1,6 +1,6 @@
 #ifndef ACIR_CLI_H
 #define ACIR_CLI_H
-#include <annec_anchor.h>
+#include <annec/anchor.h>
 
 #define ANSI_RESET "\033[m"
 #define ANSI_RED "\033[31m"

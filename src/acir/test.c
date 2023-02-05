@@ -1,5 +1,5 @@
-#include <acir/acir.h>
-#include <annec_anchor.h>
+#include <annec/ir.h>
+#include <annec/anchor.h>
 #include "cli.h"
 
 AnchAllocator *allocator;
@@ -55,7 +55,7 @@ int main(int argc, char *argv[]) {
       .rhs = { ACIR_OPERAND_TYPE_IMMEDIATE, .imm = { Tuint64, .uint64 = 2 } }, },
     (AcirInstr){ 7, ACIR_OPCODE_PHI, Tuint64, 8,
       .out = { ACIR_OPERAND_TYPE_BINDING, .idx = 6 },
-      .phi = { 2, (AcirVariableValue[]){ 4, 5 } }, },
+      .phi = { 2, (AcirBindingValue[]){ 4, 5 } }, },
     (AcirInstr){ 8, ACIR_OPCODE_EFF, Tuint64, 9,
       .out = { ACIR_OPERAND_TYPE_BINDING, .idx = 16 },
       .val = { ACIR_OPERAND_TYPE_IMMEDIATE, .imm = Tvoid }, },
@@ -92,18 +92,19 @@ int main(int argc, char *argv[]) {
   AcirBuilder outputBuilder;
   AcirBuilder_Init(&outputBuilder, &outputFunc, allocator);
 
-  AcirOptimizer optimizer;
-  AcirOptimizer_Init(&optimizer, &(const AcirOptimizer_InitInfo){
+  AcirOptimizer optimizer = {
     .allocator = allocator,
     .source = &inputFunc,
     .builder = &optimizerBuilder
-  });
+  };
+
+  AcirOptimizer_Init(&optimizer);
 
   AcirOptimizer_Analyze(&optimizer);
-  AcirOptimizer_ConstantFold(&optimizer);
+  AcirOptimizer_InstrMerge(&optimizer);
   AcirOptimizer_DeadCode(&optimizer);
 
-  AcirBuilder_BuildNormalized(&optimizerBuilder, &outputBuilder);
+  AcirBuilder_BuildToNormalized(&optimizerBuilder, &outputBuilder);
 
   AcirBuilder_Free(&optimizerBuilder);
   AcirOptimizer_Free(&optimizer);

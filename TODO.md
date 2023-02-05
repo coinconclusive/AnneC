@@ -2,6 +2,8 @@
 
 > Very crude TODO list, roughly in order.
 
+- Structure code better
+- Make up the architecture
 - Add blocks
 - Add branching
 - Add phi
