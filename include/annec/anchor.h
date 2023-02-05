@@ -2,9 +2,10 @@
 #define ANNEC_ANCHOR_H
 #include <stddef.h>
 #include <stdarg.h>
-#include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 #define ANCH_OWN /* pointer is owned by the surrounding object. */
 #define ANCH_NULLABLE(T) T /* pointer being NULL is valid behaviour. */
@@ -75,24 +76,19 @@ extern AnchAllocator_AllocZeroFunc AnchStatsAllocator_AllocZero;
 extern AnchAllocator_ReallocFunc AnchStatsAllocator_Realloc;
 extern AnchAllocator_FreeFunc AnchStatsAllocator_Free;
 
-typedef struct AnchCharWriteStream AnchCharWriteStream;
-typedef void AnchCharWriteStream_WriteFunc(AnchCharWriteStream *self, char c);
-struct AnchCharWriteStream {
-  AnchCharWriteStream_WriteFunc *write;
-};
+#define ANCH_STREAMS_DECLARE_(T, N) \
+  typedef struct Anch##N##WriteStream Anch##N##WriteStream; \
+  typedef void Anch##N##WriteStream_WriteFunc(Anch##N##WriteStream *self, T c); \
+  struct Anch##N##WriteStream { Anch##N##WriteStream_WriteFunc *write; }; \
+  typedef struct Anch##N##ReadStream Anch##N##ReadStream; \
+  typedef T Anch##N##ReadStream_ReadFunc(Anch##N##ReadStream *self); \
+  struct Anch##N##ReadStream { Anch##N##ReadStream_ReadFunc *read; }; \
+  typedef struct { Anch##N##ReadStream read; Anch##N##WriteStream write; } Anch##N##ReadWriteStream;
 
-typedef struct AnchCharReadStream AnchCharReadStream;
-typedef char AnchCharReadStream_ReadFunc(AnchCharReadStream *self);
-struct AnchCharReadStream {
-  AnchCharReadStream_ReadFunc *read;
-};
+ANCH_STREAMS_DECLARE_(char, Char);
+ANCH_STREAMS_DECLARE_(uint8_t, Byte);
 
-typedef struct {
-  AnchCharReadStream read;
-  AnchCharWriteStream write;
-} AnchCharReadWriteStream;
-
-void AnchWriteString(AnchCharWriteStream *out, const char *string);
+void AnchWriteString(AnchCharWriteStream *out, const char *string); \
 void AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va);
 
 static inline void AnchWriteFormat(AnchCharWriteStream *out, const char *format, ...) {
