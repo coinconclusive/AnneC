@@ -1,6 +1,6 @@
 #include <acir/acir.h>
 #include <annec_anchor.h>
-#include "cli.h"
+#include "../cli.h"
 
 AnchAllocator *allocator;
 AnchCharWriteStream *wsStdout;
@@ -27,14 +27,15 @@ int main(int argc, char *argv[]) {
   const AcirValueType *Tuint64 = &valueTuint64;
   AcirValueType valueTvoid = { .type = ACIR_VALUE_TYPE_BASIC, .basic = ACIR_BASIC_VALUE_TYPE_VOID };
   const AcirValueType *Tvoid = &valueTvoid;
+  (void)Tvoid;
   
   AcirInstr instrs[] = {
     (AcirInstr){ 0, ACIR_OPCODE_SET, Tuint64, 1,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 0 },
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 64 }, },
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, {{Tuint64}}, .imm.uint64 = 64 }, },
     (AcirInstr){ 1, ACIR_OPCODE_SET, Tuint64, 2,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 1 },
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 12 }, },
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, {{Tuint64}}, .imm.uint64 = 12 }, },
     (AcirInstr){ 2, ACIR_OPCODE_ADD, Tuint64, 3,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 },
       .lhs = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 1 },
@@ -44,7 +45,7 @@ int main(int argc, char *argv[]) {
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 3 }, },
     (AcirInstr){ 4, ACIR_OPCODE_SET, Tuint64, 5,
       .out = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 4 },
-      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, Tuint64, .imm.uint64 = 15 }, },
+      .val = (AcirOperand){ ACIR_OPERAND_TYPE_IMMEDIATE, {{Tuint64}}, .imm.uint64 = 15 }, },
     (AcirInstr){ 5, ACIR_OPCODE_RET, Tuint64, ACIR_INSTR_NULL_INDEX,
       .val = (AcirOperand){ ACIR_OPERAND_TYPE_BINDING, .idx = 2 }, },
   };

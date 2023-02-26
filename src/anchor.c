@@ -1,9 +1,12 @@
 #include <annec_anchor.h>
 #include <assert.h>
+#include <ctype.h>
 #include <string.h>
 #include <stdlib.h>
 
-void AnchFileWriteStream_Write(AnchCharWriteStream *self, char c) {
+//////////////////////////////////////////////////////////////////////////////////////////
+
+void AnchFileWriteStream_Write(AnchCharWriteStream *self, int c) {
   assert(self != NULL);
   fputc(c, ((AnchFileWriteStream*)self)->handle);
 }
@@ -36,7 +39,9 @@ void AnchFileWriteStream_Close(AnchFileWriteStream *self) {
   self->handle = NULL;
 }
 
-char AnchFileReadStream_Read(AnchCharReadStream *self) {
+//////////////////////////////////////////////////////////////////////////////////////////
+
+int AnchFileReadStream_Read(AnchCharReadStream *self) {
   assert(self != NULL);
   return fgetc(((AnchFileReadStream*)self)->handle);
 }
@@ -67,6 +72,104 @@ void AnchFileReadStream_Close(AnchFileReadStream *self) {
   self->handle = NULL;
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////
+
+void AnchByteFileWriteStream_Write(AnchByteWriteStream *self, uint8_t c) {
+  assert(self != NULL);
+  fputc(c, ((AnchByteFileWriteStream*)self)->handle);
+}
+
+void AnchByteFileWriteStream_Init(AnchByteFileWriteStream *self) {
+  assert(self != NULL);
+  self->stream.write = &AnchByteFileWriteStream_Write;
+  self->handle = NULL;
+}
+
+void AnchByteFileWriteStream_InitWith(AnchByteFileWriteStream *self, FILE *file) {
+  assert(self != NULL);
+  self->stream.write = &AnchByteFileWriteStream_Write;
+  self->handle = file;
+}
+
+void AnchByteFileWriteStream_Open(AnchByteFileWriteStream *self, const char *filename) {
+  assert(self != NULL);
+  assert(self->handle == NULL);
+  assert(filename != NULL);
+
+  self->handle = fopen(filename, "wb");
+}
+
+void AnchByteFileWriteStream_Close(AnchByteFileWriteStream *self) {
+  assert(self != NULL);
+  assert(self->handle != NULL);
+
+  fclose(self->handle);
+  self->handle = NULL;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+uint8_t AnchByteFileReadStream_Read(AnchByteReadStream *self) {
+  assert(self != NULL);
+  return fgetc(((AnchFileReadStream*)self)->handle);
+}
+
+void AnchByteFileReadStream_Init(AnchByteFileReadStream *self) {
+  self->stream.read = &AnchByteFileReadStream_Read;
+  self->handle = NULL;
+}
+
+void AnchByteFileReadStream_InitWith(AnchByteFileReadStream *self, FILE *file) {
+  self->stream.read = &AnchByteFileReadStream_Read;
+  self->handle = file;
+}
+
+void AnchByteFileReadStream_Open(AnchByteFileReadStream *self, const char *filename) {
+  assert(self != NULL);
+  assert(self->handle == NULL);
+  assert(filename != NULL);
+
+  self->handle = fopen(filename, "rb");
+}
+
+void AnchByteFileReadStream_Close(AnchByteFileReadStream *self) {
+  assert(self != NULL);
+  assert(self->handle != NULL);
+
+  fclose(self->handle);
+  self->handle = NULL;
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+char32_t AnchUtf8ReadStream_Read(AnchUtf8ReadStream *self) {
+  assert(self != NULL);
+  mbstate_t state = {};
+  char buf[MB_CUR_MAX];
+  char32_t c32;
+  for(int i = 0; i < MB_CUR_MAX; ++i) {
+    buf[i] = AnchByteReadStream_Read(self);
+    if(i == 0 && buf[i] == EOF) return ANCH_UTF8_STREAM_EOF;
+    size_t v = mbrtoc32(&c32, buf, i + 1, &state);
+    assert(v != (size_t)-3); // must be UTF-32
+    if(v == (size_t)-1) return ANCH_UTF8_STREAM_ERROR;
+    if(v >= 0) break;
+  }
+  return c32;
+}
+
+void AnchUtf8WriteStream_Write(AnchUtf8WriteStream *self, char32_t value) {
+  assert(self != NULL);
+	uint8_t data[MB_CUR_MAX];
+	mbstate_t ps = {};
+	int len = c32rtomb((char*)data, value, &ps);
+	assert(len != -1);
+  for(int i = 0; i < len; ++i)
+    AnchByteWriteStream_Write(self, data[i]);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
 void AnchWriteString(AnchCharWriteStream *out, const char *string) {
   if(string == NULL) return AnchWriteString(out, "(null)");
   while(*string) out->write(out, *(string++));
@@ -81,17 +184,45 @@ void AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va) 
   AnchWriteString(out, str);
 }
 
-void AnchStatsAllocator_Init(AnchStatsAllocator *self, AnchAllocator *allocator) {
-  assert(self != NULL);
-  self->base.alloc = &AnchStatsAllocator_Alloc;
-  self->base.allocZero = &AnchStatsAllocator_AllocZero;
-  self->base.realloc = &AnchStatsAllocator_Realloc;
-  self->base.free = &AnchStatsAllocator_Free;
-  self->allocator = allocator;
-  self->allocCount = 0;
-  self->reallocCount = 0;
-  self->freeCount = 0;
-}
+// void AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va) {
+//   for(const char *c = format; *c; ++c) {
+//     if(*c == '%') {
+//       ++c;
+//       enum { ET_I, ET_W, ET_Z } expectType = ET_I;
+//       char precchar = '\0';
+//       int prec = 0;
+//     read:
+//       switch(*c++) {
+//         case '%': out->write(out, '%'); break;
+//         case 'c': out->write(out, va_arg(va, int)); break;
+//         case 'd': case 'i': {
+//           int len = snprintf(NULL, 0, "%d",
+//               expectType == ET_I ? va_arg(va, int)
+//             : expectType == ET_Z ? va_arg(va, size_t)
+//             : expectType == ET_U ? va_arg(va, unsigned int));
+//           char str[len + 1];
+//           snprintf(str, len + 1, "%d", va_arg(va, int));
+//           AnchWriteString(out, str);
+//           break;
+//         }
+//         case 'u': break;
+//         case 'z': break;
+//         case '0':
+//           ++c;
+//           precchar = '0';
+//           while(isdigit(*c)) prec = prec * 10 + *c++ - '0';
+//           goto read;
+//         case '.':
+//           ++c;
+//           precchar = '.';
+//           while(isdigit(*c)) prec = prec * 10 + *c++ - '0';
+//           goto read;
+//       }
+//     }
+//   }
+// }
+
+//////////////////////////////////////////////////////////////////////////////////////////
 
 void AnchDefaultAllocator_Init(AnchDefaultAllocator *self) {
   self->alloc = &AnchDefaultAllocator_Alloc;
@@ -116,6 +247,19 @@ void AnchDefaultAllocator_Free(AnchAllocator *self, void *ptr) {
   return free(ptr);
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////
+
+void AnchStatsAllocator_Init(AnchStatsAllocator *self, AnchAllocator *allocator) {
+  assert(self != NULL);
+  self->base.alloc = &AnchStatsAllocator_Alloc;
+  self->base.allocZero = &AnchStatsAllocator_AllocZero;
+  self->base.realloc = &AnchStatsAllocator_Realloc;
+  self->base.free = &AnchStatsAllocator_Free;
+  self->allocator = allocator;
+  self->allocCount = 0;
+  self->reallocCount = 0;
+  self->freeCount = 0;
+}
 
 void *AnchStatsAllocator_Alloc(AnchAllocator *self_, size_t size) {
   AnchStatsAllocator *self = (AnchStatsAllocator *)self_;
@@ -141,3 +285,47 @@ void AnchStatsAllocator_Free(AnchAllocator *self_, void *ptr) {
   return self->allocator->free(self->allocator, ptr);
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////
+
+void AnchArena_Init(AnchArena *self, AnchAllocator *allocator, size_t prealloc) {
+  self->allocator = allocator;
+  self->size = 0;
+  self->allocated = prealloc;
+  self->data = NULL;
+  if(self->allocated > 0)
+    self->data = AnchAllocator_Alloc(self->allocator, self->allocated);
+}
+
+void AnchArena_Free(AnchArena *self) {
+  self->size = 0;
+  if(self->allocated > 0)
+    AnchAllocator_Free(self->allocator, self->data);
+  self->data = NULL;
+  self->allocator = NULL;
+}
+
+void *AnchArena_Push(AnchArena *self, size_t size) {
+  if(self->size + size > self->allocated) {
+    bool alloced = self->allocated > 0;
+    self->allocated += size < 1024 ? 1024 : size;
+    self->allocated = ANCH_ROUNDUP_POWEROF2(self->allocated, 1024);
+    if(alloced)
+      self->data = AnchAllocator_Realloc(self->allocator, self->data, self->allocated);
+    else
+      self->data = AnchAllocator_Alloc(self->allocator, self->allocated);
+  }
+  void *oldData = self->data + self->size;
+  self->size += size;
+  return oldData;
+}
+
+void AnchArena_Pop(AnchArena *self, size_t size) {
+  assert(size <= self->size);
+  self->size -= size;
+  if(self->allocated - self->size > 1024) {
+    self->allocated -= ((self->allocated - self->size) / 1024) * 1024;
+    // we can assume self->allocated % 1024 == 0.
+    // self->allocated = ANCH_ROUNDUP_POWEROF2(self->allocated, 1024);
+    AnchAllocator_Realloc(self->allocator, self->data, self->allocated);
+  }
+}

@@ -1,2 +1,5 @@
--std=c17
+-std=c2x
 -Iinclude
+-DDEBUG
+-Wall
+-Wno-unused-function

@@ -3,7 +3,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include "annec_anchor.h"
-#include "cli.h"
+#include "../cli.h"
 
 #define COMMA ,
 
@@ -129,10 +129,10 @@ void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
     AcirValueType_Print(out, self->imm.type);
     AnchWriteString(out, "#" ANSI_GREEN);
     if(!self->imm.type) {
-      AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
+      AnchWriteFormat(out, ANSI_RED "0x%016zx", *(size_t*)&self->imm);
     } else if(self->imm.type->type != ACIR_VALUE_TYPE_BASIC) {
       AnchWriteFormat(out, ANSI_RED "<not basic type (%d)>", self->imm.type->type);
-      AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
+      AnchWriteFormat(out, ANSI_RED "0x%016zx", *(size_t*)&self->imm);
     } else switch(self->imm.type->basic) {
     case ACIR_BASIC_VALUE_TYPE_SINT64: AnchWriteFormat(out, "%zu", self->imm.sint64); break;
     case ACIR_BASIC_VALUE_TYPE_UINT64: AnchWriteFormat(out, "%zu", self->imm.uint64); break;
@@ -148,7 +148,7 @@ void AcirOperand_Print(AnchCharWriteStream *out, const AcirOperand *self) {
     case ACIR_BASIC_VALUE_TYPE_VOID: AnchWriteString(out, "void"); break;
     default:
       AnchWriteFormat(out, ANSI_RED "<bad basic value type (%d)>", self->imm.type->basic);
-      AnchWriteFormat(out, ANSI_RED "0x%016x", self->imm);
+      AnchWriteFormat(out, ANSI_RED "0x%016zx", *(size_t*)&self->imm);
     }
     AnchWriteString(out, ANSI_RESET);
   } else if(self->type == ACIR_OPERAND_TYPE_BINDING) {

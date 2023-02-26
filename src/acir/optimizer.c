@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include "cli.h"
+#include "../cli.h"
 
 void AcirOptimizer_Init(AcirOptimizer *self, const AcirOptimizer_InitInfo *info) {
   assert(self != NULL);
