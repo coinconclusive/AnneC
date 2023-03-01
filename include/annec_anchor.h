@@ -54,8 +54,8 @@ typedef struct AnchAllocator AnchAllocator;
 typedef void *AnchAllocator_AllocFunc(AnchAllocator *self, size_t size);
 typedef void *AnchAllocator_AllocZeroFunc(AnchAllocator *self, size_t size);
 // TODO: flip ptr and size
-typedef void *AnchAllocator_ReallocFunc(AnchAllocator *self, size_t size, void *ptr);
-typedef void AnchAllocator_FreeFunc(AnchAllocator *self, void *ptr);
+typedef void *AnchAllocator_ReallocFunc(AnchAllocator *self, size_t size, void [[owning]] *ptr);
+typedef void AnchAllocator_FreeFunc(AnchAllocator *self, void [[owning]] *ptr);
 
 struct AnchAllocator {
   AnchAllocator_AllocFunc *alloc;
@@ -83,12 +83,12 @@ static inline void *AnchAllocator_AllocZero(AnchAllocator *self, size_t size) {
   return ptr;
 }
 
-static inline void AnchAllocator_Free(AnchAllocator *self, void *ptr) {
+static inline void AnchAllocator_Free(AnchAllocator *self, void [[owning]] *ptr) {
   assert(self != NULL);
   if(self->free) self->free(self, ptr);
 }
 
-static inline void *AnchAllocator_Realloc(AnchAllocator *self, void *ptr, size_t size) {
+static inline void *AnchAllocator_Realloc(AnchAllocator *self, void [[owning]] *ptr, size_t size) {
   assert(self != NULL);
   if(self->realloc != NULL) return self->realloc(self, size, ptr);
   void *new = AnchAllocator_Alloc(self, size);
@@ -124,15 +124,18 @@ extern AnchAllocator_FreeFunc AnchStatsAllocator_Free;
 /** Arena allocator. Or stack allocator. */
 typedef struct AnchArena {
   AnchAllocator *allocator;
-  uint8_t *data;
   size_t size;
   size_t allocated;
+  size_t step;
+  uint8_t [[owning]] *data;
 } AnchArena;
 
-void AnchArena_Init(AnchArena *self, AnchAllocator *allocator, size_t prealloc);
+void AnchArena_Init(AnchArena *self, AnchAllocator *allocator, size_t step);
 void AnchArena_Free(AnchArena *self);
 void *AnchArena_Push(AnchArena *self, size_t size);
+void *AnchArena_PushZeros(AnchArena *self, size_t size);
 void AnchArena_Pop(AnchArena *self, size_t size);
+void AnchArena_ShrinkToFit(AnchArena *self);
 
 /** Get pointer to the last element of an AnchArena* ARENA. ARENA is evaluated multiple times. */
 #define ANCH_ARENA_LAST(ARENA) (void*)((ARENA)->data + (ARENA)->size)
@@ -141,10 +144,12 @@ void AnchArena_Pop(AnchArena *self, size_t size);
 
 typedef struct AnchArena AnchDynArray;
 // TODO: implement anchdynarray through an arena
-#define AnchDynArray_Init(self, allocator, prealloc) AnchArena_Init(self, allocator, prealloc)
+#define AnchDynArray_Init(self, allocator, step) AnchArena_Init(self, allocator, step)
 #define AnchDynArray_Free(self) AnchArena_Free(self)
 #define AnchDynArray_Push(self, size) AnchArena_Push(self, size)
+#define AnchDynArray_PushZeros(self, size) AnchArena_PushZeros(self, size)
 #define AnchDynArray_Pop(self, size) AnchArena_Pop(self, size)
+#define AnchArena_ShrinkToFit(self) AnchArena_ShrinkToFit(self)
 
 #define AnchDynArray_Type(TYPE) AnchDynArray
 
@@ -228,31 +233,38 @@ typedef struct {
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
+static inline void AnchWriteChar(AnchCharWriteStream *out, int c) {
+  assert(out != NULL);
+  out->write(out, c);
+}
+
 void AnchWriteString(AnchCharWriteStream *out, const char *string);
-void AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va);
+size_t AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va);
 
-static inline void AnchWriteFormat(AnchCharWriteStream *out, const char *format, ...)
+static inline size_t AnchWriteFormat(AnchCharWriteStream *out, const char *format, ...)
   __attribute__((__format__(printf, 2, 3)));
 
-static inline void AnchWriteFormat(AnchCharWriteStream *out, const char *format, ...) {
+static inline size_t AnchWriteFormat(AnchCharWriteStream *out, const char *format, ...) {
   va_list va;
   va_start(va, format);
-  AnchWriteFormatV(out, format, va);
+  size_t r = AnchWriteFormatV(out, format, va);
   va_end(va);
+  return r;
 }
 
-static inline void AnchRWriteFormatV(AnchCharReadWriteStream *out, const char *format, va_list va) {
-  AnchWriteFormatV(&out->write, format, va);
+static inline size_t AnchRWriteFormatV(AnchCharReadWriteStream *out, const char *format, va_list va) {
+  return AnchWriteFormatV(&out->write, format, va);
 }
 
-static inline void AnchRWriteFormat(AnchCharReadWriteStream *out, const char *format, ...)
+static inline size_t AnchRWriteFormat(AnchCharReadWriteStream *out, const char *format, ...)
   __attribute__((__format__(printf, 2, 3)));
 
-static inline void AnchRWriteFormat(AnchCharReadWriteStream *out, const char *format, ...) {
+static inline size_t AnchRWriteFormat(AnchCharReadWriteStream *out, const char *format, ...) {
   va_list va;
   va_start(va, format);
-  AnchRWriteFormatV(out, format, va);
+  size_t r = AnchRWriteFormatV(out, format, va);
   va_end(va);
+  return r;
 }
 
 static inline void AnchRWriteString(AnchCharReadWriteStream *out, const char *string) {
@@ -279,12 +291,14 @@ void AnchFileWriteStream_Init(AnchFileWriteStream *self);
 void AnchFileWriteStream_InitWith(AnchFileWriteStream *self, FILE *file);
 void AnchFileWriteStream_Open(AnchFileWriteStream *self, const char *filename);
 void AnchFileWriteStream_Close(AnchFileWriteStream *self);
+void AnchFileWriteStream_Rewind(AnchFileWriteStream *self);
 
 extern AnchCharReadStream_ReadFunc AnchFileReadStream_Read;
 void AnchFileReadStream_Init(AnchFileReadStream *self);
 void AnchFileReadStream_InitWith(AnchFileReadStream *self, FILE *file);
 void AnchFileReadStream_Open(AnchFileReadStream *self, const char *filename);
 void AnchFileReadStream_Close(AnchFileReadStream *self);
+void AnchFileReadStream_Rewind(AnchFileReadStream *self);
 
 typedef struct {
   AnchByteWriteStream stream;
@@ -306,11 +320,13 @@ void AnchByteFileWriteStream_Init(AnchByteFileWriteStream *self);
 void AnchByteFileWriteStream_InitWith(AnchByteFileWriteStream *self, FILE *file);
 void AnchByteFileWriteStream_Open(AnchByteFileWriteStream *self, const char *filename);
 void AnchByteFileWriteStream_Close(AnchByteFileWriteStream *self);
+void AnchByteFileWriteStream_Rewind(AnchByteFileWriteStream *self);
 
 extern AnchByteReadStream_ReadFunc AnchByteFileReadStream_Read;
 void AnchByteFileReadStream_Init(AnchByteFileReadStream *self);
 void AnchByteFileReadStream_InitWith(AnchByteFileReadStream *self, FILE *file);
 void AnchByteFileReadStream_Open(AnchByteFileReadStream *self, const char *filename);
 void AnchByteFileReadStream_Close(AnchByteFileReadStream *self);
+void AnchByteFileReadStream_Rewind(AnchByteFileReadStream *self);
 
 #endif

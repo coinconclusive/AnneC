@@ -39,6 +39,13 @@ void AnchFileWriteStream_Close(AnchFileWriteStream *self) {
   self->handle = NULL;
 }
 
+void AnchFileWriteStream_Rewind(AnchFileWriteStream *self) {
+  assert(self != NULL);
+  assert(self->handle != NULL);
+  
+  rewind(self->handle);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 
 int AnchFileReadStream_Read(AnchCharReadStream *self) {
@@ -70,6 +77,13 @@ void AnchFileReadStream_Close(AnchFileReadStream *self) {
 
   fclose(self->handle);
   self->handle = NULL;
+}
+
+void AnchFileReadStream_Rewind(AnchFileReadStream *self) {
+  assert(self != NULL);
+  assert(self->handle != NULL);
+
+  rewind(self->handle);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -107,6 +121,13 @@ void AnchByteFileWriteStream_Close(AnchByteFileWriteStream *self) {
   self->handle = NULL;
 }
 
+void AnchByteFileWriteStream_Rewind(AnchByteFileWriteStream *self) {
+  assert(self != NULL);
+  assert(self->handle != NULL);
+  
+  rewind(self->handle);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 
 uint8_t AnchByteFileReadStream_Read(AnchByteReadStream *self) {
@@ -138,6 +159,13 @@ void AnchByteFileReadStream_Close(AnchByteFileReadStream *self) {
 
   fclose(self->handle);
   self->handle = NULL;
+}
+
+void AnchByteFileReadStream_Rewind(AnchByteFileReadStream *self) {
+  assert(self != NULL);
+  assert(self->handle != NULL);
+
+  rewind(self->handle);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -175,13 +203,14 @@ void AnchWriteString(AnchCharWriteStream *out, const char *string) {
   while(*string) out->write(out, *(string++));
 }
 
-void AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va) {
+size_t AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va) {
   va_list va2;
   va_copy(va2, va);
   size_t size = vsnprintf(NULL, 0, format, va2);
   char str[size + 1];
-  vsnprintf(str, size + 1, format, va);
+  size_t r = vsnprintf(str, size + 1, format, va);
   AnchWriteString(out, str);
+  return r;
 }
 
 // void AnchWriteFormatV(AnchCharWriteStream *out, const char *format, va_list va) {
@@ -287,17 +316,23 @@ void AnchStatsAllocator_Free(AnchAllocator *self_, void *ptr) {
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-void AnchArena_Init(AnchArena *self, AnchAllocator *allocator, size_t prealloc) {
+void AnchArena_Init(AnchArena *self, AnchAllocator *allocator, size_t step) {
+  assert(self != NULL);
+
   self->allocator = allocator;
   self->size = 0;
-  self->allocated = prealloc;
+  self->allocated = 0;
+  self->step = step ? step : 256;
   self->data = NULL;
   if(self->allocated > 0)
     self->data = AnchAllocator_Alloc(self->allocator, self->allocated);
 }
 
 void AnchArena_Free(AnchArena *self) {
+  assert(self != NULL);
+
   self->size = 0;
+  self->step = 0;
   if(self->allocated > 0)
     AnchAllocator_Free(self->allocator, self->data);
   self->data = NULL;
@@ -305,10 +340,14 @@ void AnchArena_Free(AnchArena *self) {
 }
 
 void *AnchArena_Push(AnchArena *self, size_t size) {
+  assert(self != NULL);
+
   if(self->size + size > self->allocated) {
-    bool alloced = self->allocated > 0;
-    self->allocated += size < 1024 ? 1024 : size;
-    self->allocated = ANCH_ROUNDUP_POWEROF2(self->allocated, 1024);
+    bool alloced = (self->allocated > 0);
+    if(self->step > 1) {
+      self->allocated += size < self->step ? self->step : size;
+      self->allocated = ANCH_ROUNDUP_POWEROF2(self->allocated, self->step);
+    }
     if(alloced)
       self->data = AnchAllocator_Realloc(self->allocator, self->data, self->allocated);
     else
@@ -319,13 +358,40 @@ void *AnchArena_Push(AnchArena *self, size_t size) {
   return oldData;
 }
 
+void *AnchArena_PushZeros(AnchArena *self, size_t size) {
+  assert(self != NULL);
+
+  void *addr = AnchArena_Push(self, size);
+  memset(addr, 0, size);
+  return addr;
+}
+
+/** Does not deallocate 'snugly'. \ref ShrinkToFit should be used to deallocate not needed bytes. */
 void AnchArena_Pop(AnchArena *self, size_t size) {
+  assert(self != NULL);
   assert(size <= self->size);
+
   self->size -= size;
-  if(self->allocated - self->size > 1024) {
-    self->allocated -= ((self->allocated - self->size) / 1024) * 1024;
-    // we can assume self->allocated % 1024 == 0.
-    // self->allocated = ANCH_ROUNDUP_POWEROF2(self->allocated, 1024);
-    AnchAllocator_Realloc(self->allocator, self->data, self->allocated);
+
+  /* 256 instead of self->step because we only need to deallocate once every 256 bytes. */
+  if(self->allocated - self->size > 256) {
+    self->allocated -= ((self->allocated - self->size) / 256) * 256;
+
+    if(self->step != 1) self->allocated = ANCH_ROUNDUP_POWEROF2(self->allocated, self->step);
+    self->data = AnchAllocator_Realloc(self->allocator, self->data, self->allocated);
   }
+}
+
+void AnchArena_ShrinkToFit(AnchArena *self) {
+  assert(self != NULL);
+
+  if(self->size == 0) {
+    if(self->allocated == 0) return;
+    self->allocated = 0;
+    AnchAllocator_Free(self->allocator, self->data);
+    self->data = NULL;
+  }
+
+  self->allocated = self->size;
+  self->data = AnchAllocator_Realloc(self->allocator, self->data, self->allocated);
 }

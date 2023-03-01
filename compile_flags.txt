@@ -3,3 +3,4 @@
 -DDEBUG
 -Wall
 -Wno-unused-function
+-Wno-unknown-attributes

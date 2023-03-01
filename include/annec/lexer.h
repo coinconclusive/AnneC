@@ -84,8 +84,9 @@ typedef struct AncString {
 typedef enum AncTokenType {
 	ANC_TOKEN_TYPE_EOF = -1,
 	ANC_TOKEN_TYPE_ERROR = 0,
-	ANC_TOKEN_TYPE_IDENT,
+	ANC_TOKEN_TYPE_IDENT = 128,
 	ANC_TOKEN_TYPE_INTLIT,
+	ANC_TOKEN_TYPE_FLOATLIT,
 	ANC_TOKEN_TYPE_STRING,
 	ANC_TOKEN_TYPE_CHARLIT, // 
 	ANC_TOKEN_TYPE_PLUS_EQ, // +=
@@ -180,14 +181,18 @@ typedef struct AncInputFile {
 	AnchUtf8ReadStream *stream;
 	AncSourcePosition position;
 	AnchDynArray_Type(AncString) lines;
-	uintptr_t lineLenOffset;
+	char32_t peek;
 	const char *filename;
 } AncInputFile;
 
 void AncInputFile_Init(AncInputFile *self, AnchAllocator *allocator, AnchUtf8ReadStream *input, const char *filename);
+void AncInputFile_ReadLines(AncInputFile *self);
 void AncInputFile_Free(AncInputFile *self);
 void AncInputFile_ReportError(AncInputFile *self, bool show, const AncSourceSpan *span, const char *fmt, ...)
 	__attribute__((format(printf, 4, 5)));
+char32_t AncInputFile_Get(AncInputFile *self);
+char32_t AncInputFile_Peek(AncInputFile *self);
+AncString *AncInputFile_GetLine(AncInputFile *self, unsigned int lineIndex);
 	
 #define ANC_INPUT_FILE_EOF ANCH_UTF8_STREAM_EOF
 

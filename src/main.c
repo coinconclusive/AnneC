@@ -8,6 +8,7 @@ AnchCharWriteStream *wsStderr;
 static AnchAllocator *allocator;
 
 int main(int argc, char *argv[]) {
+	fputc('\n', stdout);
 	setlocale(LC_ALL, "en_US.utf8");
 	
   AnchFileWriteStream valueWsStdout = {0};
@@ -32,6 +33,9 @@ int main(int argc, char *argv[]) {
 
 	AncInputFile inputFile = {};
 	AncInputFile_Init(&inputFile, allocator, &inputFileStream.stream, "test.txt");
+
+	AncInputFile_ReadLines(&inputFile);
+	AnchByteFileReadStream_Rewind(&inputFileStream);
 
 	AncLexer lexer = {};
 	AncLexer_Init(&lexer, allocator, &inputFile);
