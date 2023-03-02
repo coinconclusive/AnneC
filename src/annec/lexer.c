@@ -4,10 +4,47 @@
 #include "../cli.h"
 
 AncTokenType AncTokenType_FromKeyword(const char *keyword) {
+	// TODO: Make this more efficient...
 #define X(NAME, KW) if(strcmp(keyword, #KW) == 0) return ANC_TOKEN_TYPE_##NAME
 	ANC_X_TOKEN_TYPE_KEYWORDS_(X, ;);
 #undef X
 	return ANC_TOKEN_TYPE_ERROR;
+}
+
+
+static const char *const AncTokenType_keywordNameMap[] = {
+#define X(NAME, KW) [ANC_TOKEN_TYPE_##NAME] = (#KW "\0" #KW " keyword") // shady
+	// I do this (the shady bit) so that we don't need to *dynamically* append a " keyword" every time.
+	ANC_X_TOKEN_TYPE_KEYWORDS_(X, ANC_X__COMMA_)
+#undef X
+};
+
+const char [[nullable]] *AncTokenType_ToString(AncTokenType self) {
+	static const char *symbolic[] = {
+#define X(NAME, DESC, KW) [ANC_TOKEN_TYPE_##NAME] = KW
+		ANC_X_TOKEN_TYPE_SYMBOLIC_(X, ANC_X__COMMA_),
+#undef X
+	};
+
+	if(self > ANC_TOKEN_TYPE__SYMB_TOKENS_START_ && self < ANC_TOKEN_TYPE__SYMB_TOKENS_END_)
+		return symbolic[self];
+	if(self > ANC_TOKEN_TYPE__KW_TOKENS_START_ && self < ANC_TOKEN_TYPE__KW_TOKENS_END_)
+		return AncTokenType_keywordNameMap[self];
+	return NULL;
+}
+
+const char [[nullable]] *AncTokenType_ToNameString(AncTokenType self) {
+	static const char *symbolic[] = {
+#define X(NAME, DESC, KW) [ANC_TOKEN_TYPE_##NAME] = DESC
+		ANC_X_TOKEN_TYPE_SYMBOLIC_(X, ANC_X__COMMA_),
+#undef X
+	};
+
+	if(self > ANC_TOKEN_TYPE__SYMB_TOKENS_START_ && self < ANC_TOKEN_TYPE__SYMB_TOKENS_END_)
+		return symbolic[self];
+	if(self > ANC_TOKEN_TYPE__KW_TOKENS_START_ && self < ANC_TOKEN_TYPE__KW_TOKENS_END_)
+		return AncTokenType_keywordNameMap[self] + strlen(AncTokenType_keywordNameMap[self]) + 1; // shady
+	return NULL;
 }
 
 void AncInputFile_Init(AncInputFile *self, AnchAllocator *allocator, AnchUtf8ReadStream *input, const char *filename) {
@@ -629,13 +666,17 @@ void AncLexer_Read_(AncLexer *self, AncToken *token) {
 	
 	char32_t c = AncInputFile_Get(self->input);
 
-	while(iswspace(c)) c = AncInputFile_Get(self->input);
+	while(iswspace(c)) {
+		c = AncInputFile_Get(self->input);
+		if(ANC_IS_NL_(c)) self->newline = true;
+	}
 
 	while(c == '/') {
 		char32_t p = AncInputFile_Peek(self->input);
 		if(p == '/') {
 			c = AncInputFile_Get(self->input);
 			while(!ANC_IS_NL_(c)) c = AncInputFile_Get(self->input);
+			self->newline = true;
 		} else if(p == '*') {
 			c = AncInputFile_Get(self->input);
 			while(1) {
@@ -648,10 +689,16 @@ void AncLexer_Read_(AncLexer *self, AncToken *token) {
 			c = AncInputFile_Get(self->input);
 		} else break;
 
-		while(iswspace(c)) c = AncInputFile_Get(self->input);
+		while(iswspace(c)) {
+			c = AncInputFile_Get(self->input);
+			if(ANC_IS_NL_(c)) self->newline = true;
+		}
 	}
 
-	while(iswspace(c)) c = AncInputFile_Get(self->input);
+	while(iswspace(c)) {
+		c = AncInputFile_Get(self->input);
+		if(ANC_IS_NL_(c)) self->newline = true;
+	}
 
 	if(c == ANC_INPUT_FILE_EOF) {
 		token->type = ANC_TOKEN_TYPE_EOF;
@@ -662,20 +709,27 @@ void AncLexer_Read_(AncLexer *self, AncToken *token) {
 
 	AncSourcePosition startPosition = self->input->position;
 
-	if(iswalpha(c) || c == '_' || c == '\'' || c == '"') {
+	if(self->mode == ANC_LEXER_MODE_PP_INCLUDE && c == '<') {
+	} else if(iswalpha(c) || c == '_' || c == '\'' || c == '"') {
+		if(self->mode != ANC_LEXER_MODE_PP)
+			self->mode = ANC_LEXER_MODE_NO_PP;
+
 		AnchDynArray_Type(char8_t) *s = &self->tokenValues;
 		size_t oldSize = s->size;
 
-		while(iswalnum(c) || c == '_') {
-			AncPushUtf8_(s, c);
+		AncPushUtf8_(s, c);
+		char32_t p = AncInputFile_Peek(self->input);
+		while(iswalnum(p) || p == '_') {
 			c = AncInputFile_Get(self->input);
+			AncPushUtf8_(s, c);
+			p = AncInputFile_Peek(self->input);
 		}
 
 		AncTokenType type = 0;
 		
-		if(c == '"' || c == '\'') {
-			bool isChar = c == '\'';
-			AncPushUtf8_(s, c);
+		if(p == '"' || p == '\'') {
+			bool isChar = (p == '\'');
+			AncPushUtf8_(s, p);
 			c = AncInputFile_Get(self->input);
 			c = AnchLexer_Read_StringOrChar_(self, isChar, c, s, token);
 			type = isChar ? ANC_TOKEN_TYPE_CHARLIT : ANC_TOKEN_TYPE_STRING;
@@ -688,7 +742,68 @@ void AncLexer_Read_(AncLexer *self, AncToken *token) {
 		token->value.bytesOffset = oldSize;
 		token->span = (AncSourceSpan){ startPosition, self->input->position };
 	} else if(iswdigit(c) || (c == '.' && iswdigit(AncInputFile_Peek(self->input)))) {
+		if(self->mode != ANC_LEXER_MODE_PP)
+			self->mode = ANC_LEXER_MODE_NO_PP;
+		
 		c = AncLexer_Read_Numeric_(self, c, token);
+	} else {
+		char32_t p = self->input->peek ? self->input->peek : AncInputFile_Peek(self->input);
+		bool eat = false;
+
+#define OPTIONAL_EQUALS(DEFAULT, EQUALS) token->type = DEFAULT; \
+	if(p == '=' && (eat = true)) token->type = EQUALS;
+
+		switch(c) {
+			case '+':
+				token->type = ANC_TOKEN_TYPE_PLUS;
+				if(p == '=' && (eat = true)) token->type = ANC_TOKEN_TYPE_PLUS_EQ;
+				if(p == '+' && (eat = true)) token->type = ANC_TOKEN_TYPE_PLUS_PLUS;
+				break;
+			case '-':
+				token->type = ANC_TOKEN_TYPE_MINUS;
+				if(p == '=' && (eat = true)) token->type = ANC_TOKEN_TYPE_MINUS_EQ;
+				if(p == '-' && (eat = true)) token->type = ANC_TOKEN_TYPE_MINUS_MINUS;
+				if(p == '>' && (eat = true)) token->type = ANC_TOKEN_TYPE_ARROW;
+				break;
+			case '*': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_STAR, ANC_TOKEN_TYPE_STAR_EQ); break;
+			case '/': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_SLASH, ANC_TOKEN_TYPE_SLASH_EQ); break;
+			case '%': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_PERC, ANC_TOKEN_TYPE_PERC_EQ); break;
+			case '&': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_AMP, ANC_TOKEN_TYPE_AMP_EQ); break;
+			case '|': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_BAR, ANC_TOKEN_TYPE_BAR_EQ); break;
+			case '^': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_CIRC, ANC_TOKEN_TYPE_CIRC_EQ); break;
+			case '=': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_EQUAL, ANC_TOKEN_TYPE_EQUALEQUAL); break;
+			case '!': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_EXC, ANC_TOKEN_TYPE_EXC_EQ); break;
+			case '<': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_LT, ANC_TOKEN_TYPE_LT_EQ); break;
+			case '>': OPTIONAL_EQUALS(ANC_TOKEN_TYPE_GT, ANC_TOKEN_TYPE_GT_EQ); break;
+			case '#':
+				if(self->mode != ANC_LEXER_MODE_NO_PP)
+					self->mode = ANC_LEXER_MODE_PP;
+				token->type = ANC_TOKEN_TYPE_HASH;
+				break;
+			case '~': token->type = ANC_TOKEN_TYPE_TILDE; break;
+			case '.': token->type = ANC_TOKEN_TYPE_DOT; break;
+			case '[': token->type = ANC_TOKEN_TYPE_LBRACKET; break;
+			case ']': token->type = ANC_TOKEN_TYPE_RBRACKET; break;
+			case '(': token->type = ANC_TOKEN_TYPE_LPAREN; break;
+			case ')': token->type = ANC_TOKEN_TYPE_RPAREN; break;
+			case '{': token->type = ANC_TOKEN_TYPE_LBRACE; break;
+			case '}': token->type = ANC_TOKEN_TYPE_RBRACE; break;
+			case '?': token->type = ANC_TOKEN_TYPE_QUEST; break;
+			case ':': token->type = ANC_TOKEN_TYPE_COLON; break;
+			case ';': token->type = ANC_TOKEN_TYPE_SEMICOLON; break;
+			case ',': token->type = ANC_TOKEN_TYPE_COMMA; break;
+			default:
+				AncInputFile_ReportError(
+					self->input, true, &ANC_SOURCE_SPAN_SAME(self->input->position),
+					"Unknown character."
+				);
+				break;
+		}
+
+		if(self->mode != ANC_LEXER_MODE_PP)
+			self->mode = ANC_LEXER_MODE_NO_PP;
+		
+		if(eat) c = AncInputFile_Get(self->input);
 	}
 }
 
@@ -697,6 +812,7 @@ void AncLexer_Init(AncLexer *self, AnchAllocator *allocator, AncInputFile *input
 
 	self->allocator = allocator;
 	self->input = input;
+	self->mode = ANC_LEXER_MODE_DEFAULT;
 	AnchDynArray_Init(&self->tokens, self->allocator, 0);
 	AnchArena_Init(&self->tokenValues, self->allocator, 0);
 	AnchDynArray_Init(&self->tokenPeekBuf, self->allocator, 0);
@@ -710,6 +826,7 @@ void AncLexer_Free(AncLexer *self) {
 	AnchDynArray_Free(&self->tokenPeekBuf);
 	self->input = NULL;
 	self->allocator = NULL;
+	self->mode = ANC_LEXER_MODE_DEFAULT;
 }
 
 AncToken *AncLexer_Read(AncLexer *self) {
@@ -721,7 +838,7 @@ AncToken *AncLexer_Read(AncLexer *self) {
 		return last;
 	}
 
-	AncToken *token = AnchArena_Push(&self->tokens, sizeof(AncToken));
+	AncToken *token = AnchArena_PushZeros(&self->tokens, sizeof(AncToken));
 	AncLexer_Read_(self, token);
 	return token;
 }

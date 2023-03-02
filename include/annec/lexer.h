@@ -21,6 +21,7 @@ typedef struct AncString {
 	(uint8_t*)((ARENA)->data + (SV)->bytesOffset)
 
 #define ANC_X__COMMA_ ,
+
 #define ANC_X_TOKEN_TYPE_KEYWORDS_(X, SEP) \
 	X(U_ALIGNOF, _Alignof) SEP \
 	X(U_STATIC_ASSERT, _Static_assert) SEP \
@@ -81,6 +82,31 @@ typedef struct AncString {
 	X(VOLATILE, volatile) SEP \
 	X(WHILE, while)
 
+#define ANC_X_TOKEN_TYPE_SYMBOLIC_(X, SEP) \
+	X(PLUS_EQ, "plus equal", "+=") SEP \
+	X(MINUS_EQ, "minus equal", "-=") SEP \
+	X(STAR_EQ, "times equal", "*=") SEP \
+	X(SLASH_EQ, "divide equal", "/=") SEP \
+	X(PERC_EQ, "mod equal", "%=") SEP \
+	X(AMP_EQ, "and equal", "&=") SEP \
+	X(BAR_EQ, "or equal", "|=") SEP \
+	X(CIRC_EQ, "xor equal", "^=") SEP \
+	X(LTLT_EQ, "shift left equal", "<<=") SEP \
+	X(GTGT_EQ, "shift right equal", ">>=") SEP \
+	X(PLUS_PLUS, "increment", "++") SEP \
+	X(MINUS_MINUS, "decrement", "--") SEP \
+	X(LTLT, "shift left", "<<") SEP \
+	X(GTGT, "shift right", ">>") SEP \
+	X(HASHHASH, "double hash", "##") SEP \
+	X(EQUALEQUAL, "equals", "==") SEP \
+	X(AMPAMP, "boolean and", "&&") SEP \
+	X(BARBAR, "boolean or", "||") SEP \
+	X(EXC_EQ, "not equal", "!=") SEP \
+	X(LT_EQ, "less than or equal", "<=") SEP \
+	X(GT_EQ, "greater than or equal", ">=") SEP \
+	X(ARROW, "arrow", "->") SEP \
+	X(ELLIPSIS, "ellipsis", "...")
+
 typedef enum AncTokenType {
 	ANC_TOKEN_TYPE_EOF = -1,
 	ANC_TOKEN_TYPE_ERROR = 0,
@@ -88,37 +114,24 @@ typedef enum AncTokenType {
 	ANC_TOKEN_TYPE_INTLIT,
 	ANC_TOKEN_TYPE_FLOATLIT,
 	ANC_TOKEN_TYPE_STRING,
-	ANC_TOKEN_TYPE_CHARLIT, // 
-	ANC_TOKEN_TYPE_PLUS_EQ, // +=
-	ANC_TOKEN_TYPE_MINUS_EQ, // -=
-	ANC_TOKEN_TYPE_STAR_EQ, // *=
-	ANC_TOKEN_TYPE_SLASH_EQ, // /=
-	ANC_TOKEN_TYPE_PERC_EQ, // %=
-	ANC_TOKEN_TYPE_AMP_EQ, // &=
-	ANC_TOKEN_TYPE_BAR_EQ, // |=
-	ANC_TOKEN_TYPE_CIRC_EQ, // ^=
-	ANC_TOKEN_TYPE_LTLT_EQ, // <<=
-	ANC_TOKEN_TYPE_GTGT_EQ, // >>=
+	ANC_TOKEN_TYPE_CHARLIT,
+	ANC_TOKEN_TYPE_INCLUDE_STRING,
 
-	ANC_TOKEN_TYPE_PLUS_PLUS, // ++
-	ANC_TOKEN_TYPE_MINUS_MINUS, // --
+	ANC_TOKEN_TYPE__SYMB_TOKENS_START_,
 
-	ANC_TOKEN_TYPE_LTLT, // <<
-	ANC_TOKEN_TYPE_GTGT, // >>
-	ANC_TOKEN_TYPE_HASHHASH, // ##
-	ANC_TOKEN_TYPE_EQUALEQUAL, // ==
-	ANC_TOKEN_TYPE_AMPAMP, // &&
-	ANC_TOKEN_TYPE_BARBAR, // ||
+#define X(NAME, DESC, KW) ANC_TOKEN_TYPE_##NAME
+	ANC_X_TOKEN_TYPE_SYMBOLIC_(X, ANC_X__COMMA_),
+#undef X
 
-	ANC_TOKEN_TYPE_EXC_EQ, // !=
-	ANC_TOKEN_TYPE_LT_EQ, // <=
-	ANC_TOKEN_TYPE_GT_EQ, // >=
-	ANC_TOKEN_TYPE_ARROW, // ->
-	ANC_TOKEN_TYPE_ELLIPSIS, // ...
+	ANC_TOKEN_TYPE__SYMB_TOKENS_END_,
+	
+	ANC_TOKEN_TYPE__KW_TOKENS_START_,
 
 #define X(NAME, KW) ANC_TOKEN_TYPE_##NAME
 	ANC_X_TOKEN_TYPE_KEYWORDS_(X, ANC_X__COMMA_),
 #undef X
+
+	ANC_TOKEN_TYPE__KW_TOKENS_END_,
 
 	ANC_TOKEN_TYPE_PLUS = '+', // +
 	ANC_TOKEN_TYPE_MINUS = '-', // -
@@ -148,6 +161,8 @@ typedef enum AncTokenType {
 } AncTokenType;
 
 AncTokenType AncTokenType_FromKeyword(const char *keyword);
+const char [[nullable]] *AncTokenType_ToString(AncTokenType self);
+const char [[nullable]] *AncTokenType_ToNameString(AncTokenType self);
 
 typedef struct AncSourcePosition {
 	unsigned int line;
@@ -196,12 +211,21 @@ AncString *AncInputFile_GetLine(AncInputFile *self, unsigned int lineIndex);
 	
 #define ANC_INPUT_FILE_EOF ANCH_UTF8_STREAM_EOF
 
+typedef enum AncLexerMode {
+	ANC_LEXER_MODE_DEFAULT, // default mode.
+	ANC_LEXER_MODE_PP, // lexing preprocessor directive.
+	ANC_LEXER_MODE_NO_PP, // no preprocessor directive allowed.
+	ANC_LEXER_MODE_PP_INCLUDE, // lexing the "include" preprocessor directive.
+	ANC_LEXER_MODE_PP_KEYWORD, // first lexing a preprocessor directive.
+} AncLexerMode;
+
 typedef struct AncLexer {
 	AnchAllocator *allocator;
 	AncInputFile *input;
 	AnchArena tokenValues;
 	AnchDynArray_Type(AncToken) tokens;
 	AnchDynArray_Type(intptr_t) tokenPeekBuf;
+	bool newline;
 } AncLexer;
 
 void AncLexer_Init(AncLexer *self, AnchAllocator *allocator, AncInputFile *input);
